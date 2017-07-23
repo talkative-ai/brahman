@@ -13,8 +13,8 @@ import (
 
 	"google.golang.org/appengine"
 
-	apiai "github.com/warent/apiai-go"
-	"github.com/warent/shiva/models"
+	apiai "github.com/artificial-universe-maker/apiai-go"
+	"github.com/artificial-universe-maker/shiva/models"
 )
 
 type ActionHandler func(context.Context, *apiai.QueryResponse, *ResponseMessage)
@@ -47,7 +47,7 @@ func main() {
 		},
 		"wrap new title": []string{
 			"Recently, an adventure named \"%s\" was published.",
-			"There's this one called \"%s\" that's fresh off the presses.",
+			"There's this one called \"%s\" that's fresh off the press.",
 		},
 		"introduce": []string{
 			"This is your buddy AUM.",
