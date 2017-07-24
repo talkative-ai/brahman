@@ -83,7 +83,9 @@ func LogicLazyEval(compiled []byte) ([]uint64, error) {
 	}
 
 	for i := 0; i < int(numStatements); i++ {
-		ids = append(ids, *orderedIDs[i])
+		if orderedIDs[i] != nil {
+			ids = append(ids, *orderedIDs[i])
+		}
 	}
 
 	return ids, nil
