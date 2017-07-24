@@ -10,11 +10,3 @@ const (
 	OpIntGE
 	OpIntNE
 )
-
-type StatementInt int8
-
-const (
-	StatementIF StatementInt = 1 << iota
-	StatementELIF
-	StatementELSE
-)
