@@ -14,10 +14,11 @@ import (
 	"google.golang.org/appengine"
 
 	apiai "github.com/artificial-universe-maker/apiai-go"
-	"github.com/artificial-universe-maker/shiva/models"
+	"github.com/artificial-universe-maker/go-ssml"
+	"github.com/artificial-universe-maker/go-utilities/models"
 )
 
-type ActionHandler func(context.Context, *apiai.QueryResponse, *ResponseMessage)
+type ActionHandler func(context.Context, *apiai.QueryResponse, *models.AumMutableRuntimeState)
 
 var RSIntro map[string][]string
 var RSCustom map[string][]string
@@ -57,8 +58,9 @@ func main() {
 	}
 
 	ActionHandlers = map[string]ActionHandler{
-		"input.welcome": welcome,
-		"list.games":    listGames,
+		"input.welcome":   welcome,
+		"list.games":      listGames,
+		"initialize.game": initializeGame,
 	}
 
 	http.HandleFunc("/v1/", actionHandler)
@@ -66,28 +68,12 @@ func main() {
 	appengine.Main()
 }
 
-type ResponseMessage struct {
-	Text string
-}
-
-func (r *ResponseMessage) Append(appended string) {
-	if len(r.Text) == 0 {
-		r.Text = appended
-		return
-	}
-	r.Text = fmt.Sprintf("%s %s", r.Text, appended)
-}
-
-func (r *ResponseMessage) Prepare() (prepared map[string]string) {
+func Prepare(msg ssml.Builder) (prepared map[string]string) {
 	prepared = map[string]string{
-		"speech":      r.Text,
-		"displayText": r.Text,
+		"speech":      msg.String(),
+		"displayText": msg.String(),
 	}
 	return
-}
-
-func (r *ResponseMessage) IsEmpty() bool {
-	return len(r.Text) == 0
 }
 
 func pseudoRand(max int) int {
@@ -104,7 +90,10 @@ func Choose(list []string) string {
 
 func actionHandler(w http.ResponseWriter, r *http.Request) {
 
-	responseMessage := &ResponseMessage{}
+	runtimeState := &models.AumMutableRuntimeState{
+		State:      map[string]string{},
+		OutputSSML: ssml.NewBuilder(),
+	}
 	input := &apiai.QueryResponse{}
 
 	w.Header().Add("content-type", "application/json")
@@ -119,36 +108,36 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println(input.Result.Action)
 
 	if responseStrings, ok := RSIntro[input.Result.Action]; ok {
-		responseMessage.Append(Choose(responseStrings))
+		runtimeState.OutputSSML.Text(Choose(responseStrings))
 	}
 
 	if handler, ok := ActionHandlers[input.Result.Action]; ok {
-		handler(r.Context(), input, responseMessage)
+		handler(r.Context(), input, runtimeState)
 	}
 
-	if responseMessage.IsEmpty() {
-		unknown(r.Context(), input, responseMessage)
-	}
-
-	json.NewEncoder(w).Encode(responseMessage.Prepare())
+	json.NewEncoder(w).Encode(Prepare(runtimeState.OutputSSML))
 }
 
-func listGames(ctx context.Context, q *apiai.QueryResponse, message *ResponseMessage) {
+func listGames(ctx context.Context, q *apiai.QueryResponse, message *models.AumMutableRuntimeState) {
 	dsClient, _ := datastore.NewClient(ctx, "artificial-universe-maker")
 
 	projects := make([]models.AumProject, 0)
 
 	dsClient.GetAll(ctx, datastore.NewQuery("Project").Limit(1), &projects)
 
-	message.Append(fmt.Sprintf(Choose(RSCustom["wrap new title"]), projects[0].Title))
+	message.OutputSSML.Text(fmt.Sprintf(Choose(RSCustom["wrap new title"]), projects[0].Title))
 
-	message.Append(Choose(RSCustom["hint actions after list.games"]))
+	message.OutputSSML.Text(Choose(RSCustom["hint actions after list.games"]))
 }
 
-func welcome(ctx context.Context, q *apiai.QueryResponse, message *ResponseMessage) {
-	message.Append(Choose(RSCustom["introduce"]))
+func welcome(ctx context.Context, q *apiai.QueryResponse, message *models.AumMutableRuntimeState) {
+	message.OutputSSML.Text(Choose(RSCustom["introduce"]))
 }
 
-func unknown(ctx context.Context, q *apiai.QueryResponse, message *ResponseMessage) {
-	message.Append(Choose(RSCustom["unknown"]))
+func unknown(ctx context.Context, q *apiai.QueryResponse, message *models.AumMutableRuntimeState) {
+	message.OutputSSML.Text(Choose(RSCustom["unknown"]))
+}
+
+func initializeGame(ctx context.Context, q *apiai.QueryResponse, message *models.AumMutableRuntimeState) {
+
 }
