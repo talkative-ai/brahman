@@ -11,8 +11,6 @@ import (
 
 	"cloud.google.com/go/datastore"
 
-	"google.golang.org/appengine"
-
 	apiai "github.com/artificial-universe-maker/apiai-go"
 	"github.com/artificial-universe-maker/go-ssml"
 	"github.com/artificial-universe-maker/go-utilities/models"
@@ -65,7 +63,7 @@ func main() {
 
 	http.HandleFunc("/v1/", actionHandler)
 
-	appengine.Main()
+	http.ListenAndServe(":8085", nil)
 }
 
 func Prepare(msg ssml.Builder) (prepared map[string]string) {
