@@ -58,7 +58,7 @@ func main() {
 	ActionHandlers = map[string]ActionHandler{
 		"input.welcome":   welcome,
 		"list.games":      listGames,
-		"initialize.game": initializeGame,
+		"game.initialize": initializeGame,
 	}
 
 	http.HandleFunc("/v1/google", actionHandler)
@@ -131,6 +131,13 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 		OutputSSML: ssml.NewBuilder(),
 	}
 
+	// // Save a copy of this request for debugging.
+	// requestDump, err := httputil.DumpRequest(r, true)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
+	// fmt.Println(string(requestDump))
+
 	input := &actions.ApiAiRequest{}
 	err := json.NewDecoder(r.Body).Decode(input)
 	if err != nil {
@@ -138,20 +145,24 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("%+v", input.OriginalRequest.Data.User)
-	return
-
-	log.Println(input.Result.Action)
-
-	if responseStrings, ok := RSIntro[input.Result.Action]; ok {
-		runtimeState.OutputSSML.Text(Choose(responseStrings))
-	}
-
-	if handler, ok := ActionHandlers[input.Result.Action]; ok {
+	if responseStrings, ok := RSIntro[input.Result.Metadata.IntentName]; ok {
+		runtimeState.OutputSSML = runtimeState.OutputSSML.Text(Choose(responseStrings))
+	} else if handler, ok := ActionHandlers[input.Result.Metadata.IntentName]; ok {
 		handler(r.Context(), input, runtimeState)
+	} else {
+		unknown(r.Context(), input, runtimeState)
 	}
 
-	json.NewEncoder(w).Encode(Prepare(runtimeState.OutputSSML))
+	fmt.Printf("%+v", input.Result.Contexts)
+
+	response := actions.ServiceResponse{
+		DisplayText: runtimeState.OutputSSML.String(),
+		Speech:      runtimeState.OutputSSML.String(),
+	}
+	out := actions.ApiAiContext{Name: fmt.Sprintf("aum_jwt_%v", time.Now().UnixNano()), Parameters: map[string]string{"token": fmt.Sprintf("%v", time.Now().UnixNano())}, Lifespan: 1}
+	response.ContextOut = &[]actions.ApiAiContext{out}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 func listGames(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
@@ -161,19 +172,20 @@ func listGames(ctx context.Context, q *actions.ApiAiRequest, message *models.Aum
 
 	dsClient.GetAll(ctx, datastore.NewQuery("Project").Limit(1), &projects)
 
-	message.OutputSSML.Text(fmt.Sprintf(Choose(RSCustom["wrap new title"]), projects[0].Title))
+	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf(Choose(RSCustom["wrap new title"]), projects[0].Title))
 
-	message.OutputSSML.Text(Choose(RSCustom["hint actions after list.games"]))
+	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["hint actions after list.games"]))
+
 }
 
 func welcome(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML.Text(Choose(RSCustom["introduce"]))
+	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["introduce"]))
 }
 
 func unknown(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML.Text(Choose(RSCustom["unknown"]))
+	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["unknown"]))
 }
 
 func initializeGame(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-
+	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["introduce"]))
 }
