@@ -14,6 +14,7 @@ import (
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
 	"github.com/artificial-universe-maker/go-ssml"
 	"github.com/artificial-universe-maker/go-utilities/models"
+	jwt "github.com/dgrijalva/jwt-go"
 )
 
 type ActionHandler func(context.Context, *actions.ApiAiRequest, *models.AumMutableRuntimeState)
@@ -153,14 +154,23 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 		unknown(r.Context(), input, runtimeState)
 	}
 
-	fmt.Printf("%+v", input.Result.Contexts)
-
 	response := actions.ServiceResponse{
 		DisplayText: runtimeState.OutputSSML.String(),
 		Speech:      runtimeState.OutputSSML.String(),
 	}
-	out := actions.ApiAiContext{Name: fmt.Sprintf("aum_jwt_%v", time.Now().UnixNano()), Parameters: map[string]string{"token": fmt.Sprintf("%v", time.Now().UnixNano())}, Lifespan: 1}
-	response.ContextOut = &[]actions.ApiAiContext{out}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"state": runtimeState.State,
+	})
+
+	tokenString, err := token.SignedString([]byte("key"))
+	if err != nil {
+		log.Println("Error", err)
+		return
+	}
+
+	tokenOut := actions.ApiAiContext{Name: fmt.Sprintf("aum_jwt_%v", time.Now().UnixNano()), Parameters: map[string]string{"token": tokenString}, Lifespan: 1}
+	response.ContextOut = &[]actions.ApiAiContext{tokenOut}
 
 	json.NewEncoder(w).Encode(response)
 }
@@ -187,5 +197,8 @@ func unknown(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMu
 }
 
 func initializeGame(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+	//redis := providers.ConnectRedis()
+	//redis.Get(keyn)
+	//message.State["zone"] =
 	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["introduce"]))
 }
