@@ -1,23 +1,26 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
-	"cloud.google.com/go/datastore"
+	"github.com/artificial-universe-maker/go-utilities"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
 	"github.com/artificial-universe-maker/go-ssml"
+	"github.com/artificial-universe-maker/go-utilities/keynav"
 	"github.com/artificial-universe-maker/go-utilities/models"
+	"github.com/artificial-universe-maker/go-utilities/providers"
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-type ActionHandler func(context.Context, *actions.ApiAiRequest, *models.AumMutableRuntimeState)
+type ActionHandler func(*actions.ApiAiRequest, *models.AumMutableRuntimeState)
 
 var RSIntro map[string][]string
 var RSCustom map[string][]string
@@ -125,19 +128,16 @@ func Choose(list []string) string {
 
 func actionHandler(w http.ResponseWriter, r *http.Request) {
 
+	os.Setenv("REDIS_ADDR", "localhost:6379")
+	os.Setenv("REDIS_PASSWORD", "")
+	os.Setenv("JWT_KEY", "secret")
+
 	w.Header().Add("content-type", "application/json")
 
 	runtimeState := &models.AumMutableRuntimeState{
-		State:      map[string]string{},
+		State:      map[string]interface{}{},
 		OutputSSML: ssml.NewBuilder(),
 	}
-
-	// // Save a copy of this request for debugging.
-	// requestDump, err := httputil.DumpRequest(r, true)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
-	// fmt.Println(string(requestDump))
 
 	input := &actions.ApiAiRequest{}
 	err := json.NewDecoder(r.Body).Decode(input)
@@ -146,12 +146,30 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if responseStrings, ok := RSIntro[input.Result.Metadata.IntentName]; ok {
-		runtimeState.OutputSSML = runtimeState.OutputSSML.Text(Choose(responseStrings))
-	} else if handler, ok := ActionHandlers[input.Result.Metadata.IntentName]; ok {
-		handler(r.Context(), input, runtimeState)
+	hasGameToken := false
+	for _, ctx := range input.Result.Contexts {
+		if !strings.HasPrefix(ctx.Name, "aum_jwt_") {
+			continue
+		}
+		claims, err := utilities.ParseJTWClaims(ctx.Parameters["token"])
+		if err != nil {
+			log.Println("Error", err)
+			return
+		}
+		runtimeState.State = claims["state"].(map[string]interface{})
+		hasGameToken = true
+	}
+
+	if hasGameToken {
+		ingameHandler(input, runtimeState)
 	} else {
-		unknown(r.Context(), input, runtimeState)
+		if responseStrings, ok := RSIntro[input.Result.Metadata.IntentName]; ok {
+			runtimeState.OutputSSML = runtimeState.OutputSSML.Text(Choose(responseStrings))
+		} else if handler, ok := ActionHandlers[input.Result.Metadata.IntentName]; ok {
+			handler(input, runtimeState)
+		} else {
+			unknown(input, runtimeState)
+		}
 	}
 
 	response := actions.ServiceResponse{
@@ -163,7 +181,7 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 		"state": runtimeState.State,
 	})
 
-	tokenString, err := token.SignedString([]byte("key"))
+	tokenString, err := token.SignedString([]byte("secret"))
 	if err != nil {
 		log.Println("Error", err)
 		return
@@ -175,30 +193,29 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func listGames(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	dsClient, _ := datastore.NewClient(ctx, "artificial-universe-maker")
-
-	projects := make([]models.AumProject, 0)
-
-	dsClient.GetAll(ctx, datastore.NewQuery("Project").Limit(1), &projects)
-
-	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf(Choose(RSCustom["wrap new title"]), projects[0].Title))
-
+func listGames(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["hint actions after list.games"]))
-
 }
 
-func welcome(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+func welcome(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["introduce"]))
 }
 
-func unknown(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+func unknown(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["unknown"]))
 }
 
-func initializeGame(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	//redis := providers.ConnectRedis()
-	//redis.Get(keyn)
-	//message.State["zone"] =
-	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["introduce"]))
+func initializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+	redis, err := providers.ConnectRedis()
+	if err != nil {
+		log.Println("Error", err)
+		return
+	}
+	zone_id := redis.HGet(keynav.GlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val()
+	message.State["zone"] = zone_id
+	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
+}
+
+func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+	message.OutputSSML = message.OutputSSML.Text("You're in a game!")
 }
