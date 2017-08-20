@@ -11,12 +11,12 @@ import (
 
 	"cloud.google.com/go/datastore"
 
-	apiai "github.com/artificial-universe-maker/apiai-go"
+	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
 	"github.com/artificial-universe-maker/go-ssml"
 	"github.com/artificial-universe-maker/go-utilities/models"
 )
 
-type ActionHandler func(context.Context, *apiai.QueryResponse, *models.AumMutableRuntimeState)
+type ActionHandler func(context.Context, *actions.ApiAiRequest, *models.AumMutableRuntimeState)
 
 var RSIntro map[string][]string
 var RSCustom map[string][]string
@@ -61,9 +61,45 @@ func main() {
 		"initialize.game": initializeGame,
 	}
 
-	http.HandleFunc("/v1/", actionHandler)
+	http.HandleFunc("/v1/google", actionHandler)
+	http.HandleFunc("/v1/google/auth", googleAuthHandler)
+	http.HandleFunc("/v1/google/auth.token", googleAuthTokenHandler)
 
 	http.ListenAndServe(":8085", nil)
+}
+
+const (
+	AuthGoogleClientID       = "558300683184-vqt364nq9hko57c81gia7fkiclkt1ste.apps.googleusercontent.com"
+	AuthGoogleRedirectURI    = "https://oauth-redirect.googleusercontent.com/r/artificial-universe-make-7ef2b"
+	AuthGoogleDevRedirectURI = "https://developers.google.com/oauthplayground"
+)
+
+func googleAuthTokenHandler(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func googleAuthHandler(w http.ResponseWriter, r *http.Request) {
+	//https://brahman.ngrok.io/v1/google/auth?response_type=token&client_id=558300683184-vqt364nq9hko57c81gia7fkiclkt1ste.apps.googleusercontent.com&redirect_uri=https://oauth-redirect.googleusercontent.com/r/artificial-universe-make-7ef2b&scope=email+name&state=CoIDQUZEXzV0a2FxNDhCZkpIeUxZaGVTc2otQkFfVlRib2VpNnhCeGdsOF91UmROWkF2LXNoV1JwQkNhN1F5alRIc2pYWkN2bURneUxGNVluOFVhNlRabkUtSkRWaUpFOXdGS1ZBemhpQlQ2R2ZycEhkMDRPVnFTbzIxbVRaNVQ2U2M1eUpFLS0xNHpyVXRaS055eVk5UW9WQ3BJeVRYOFhjMGxsbFltY1VPLVRaN0NsQnk2b0FONVdONmlYVW1Mdko2bEppQkhGYVlYdTViUml4ZEt5VV9EajhvUHlwN185aWx2czRHdnNuTVhUMWx3dDQ2akhMVWpyeldjcUtKTU1tUmotTFNVa2tfeXpUVVo2aEpJZ0t3elNpSTZrWUpzekhZSkstVVBQX0M2eE5kNmpXV0Z5TklLNWxWV1VVWjNYTG1qRmVPVk9nejRkVzBya2E5MVQzc1VWeE1QZXZUektyZGRTM0Q5Y2hwaEtrQ0ZKeVFGbk16R2d6aFI1QmZvUElmTUESF2h0dHBzOi8vd3d3Lmdvb2dsZS5jb20vIk1odHRwczovL29hdXRoLXJlZGlyZWN0Lmdvb2dsZXVzZXJjb250ZW50LmNvbS9yL2FydGlmaWNpYWwtdW5pdmVyc2UtbWFrZS03ZWYyYjIiYXJ0aWZpY2lhbC11bml2ZXJzZS1tYWtlLTdlZjJiX2Rldg
+	clientID := r.FormValue("client_id")
+	if clientID != AuthGoogleClientID {
+		fmt.Println("Invalid client id", clientID)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	redirectURI := r.FormValue("redirect_uri")
+	if redirectURI != AuthGoogleRedirectURI && redirectURI != AuthGoogleDevRedirectURI {
+		fmt.Println("Invalid redirect URI", redirectURI)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	stateString := r.FormValue("state")
+
+	for k, v := range r.Form {
+		fmt.Println("Key:", k, "Val:", v)
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("%v#access_token=123&token_type=bearer&state=%v", redirectURI, stateString), 302)
 }
 
 func Prepare(msg ssml.Builder) (prepared map[string]string) {
@@ -88,20 +124,22 @@ func Choose(list []string) string {
 
 func actionHandler(w http.ResponseWriter, r *http.Request) {
 
+	w.Header().Add("content-type", "application/json")
+
 	runtimeState := &models.AumMutableRuntimeState{
 		State:      map[string]string{},
 		OutputSSML: ssml.NewBuilder(),
 	}
-	input := &apiai.QueryResponse{}
 
-	w.Header().Add("content-type", "application/json")
-
-	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(input)
+	input := &actions.ApiAiRequest{}
+	err := json.NewDecoder(r.Body).Decode(input)
 	if err != nil {
 		log.Println("Error", err)
 		return
 	}
+
+	fmt.Printf("%+v", input.OriginalRequest.Data.User)
+	return
 
 	log.Println(input.Result.Action)
 
@@ -116,7 +154,7 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(Prepare(runtimeState.OutputSSML))
 }
 
-func listGames(ctx context.Context, q *apiai.QueryResponse, message *models.AumMutableRuntimeState) {
+func listGames(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 	dsClient, _ := datastore.NewClient(ctx, "artificial-universe-maker")
 
 	projects := make([]models.AumProject, 0)
@@ -128,14 +166,14 @@ func listGames(ctx context.Context, q *apiai.QueryResponse, message *models.AumM
 	message.OutputSSML.Text(Choose(RSCustom["hint actions after list.games"]))
 }
 
-func welcome(ctx context.Context, q *apiai.QueryResponse, message *models.AumMutableRuntimeState) {
+func welcome(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 	message.OutputSSML.Text(Choose(RSCustom["introduce"]))
 }
 
-func unknown(ctx context.Context, q *apiai.QueryResponse, message *models.AumMutableRuntimeState) {
+func unknown(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 	message.OutputSSML.Text(Choose(RSCustom["unknown"]))
 }
 
-func initializeGame(ctx context.Context, q *apiai.QueryResponse, message *models.AumMutableRuntimeState) {
+func initializeGame(ctx context.Context, q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 
 }

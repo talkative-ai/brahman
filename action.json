@@ -1,0 +1,27 @@
+{
+	"actions": [
+      {
+        "description": "Default Welcome Intent",
+        "name": "MAIN",
+        "fulfillment": {
+          "conversationName": "aum"
+        },
+        "intent": {
+          "name": "actions.intent.MAIN",
+          "trigger": {
+            "queryPatterns": [
+              "talk to AUM",
+              "talk to Artificial Universe Maker"
+            ]
+          }
+        }
+      }
+    ],
+    "conversations": {
+      "aum": {
+        "name": "aum",
+        "url": "https://brahman.ngrok.io/v1/"
+      }
+    }
+
+}
