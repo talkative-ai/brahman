@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"bytes"
+	"fmt"
 
 	utilities "github.com/artificial-universe-maker/go-utilities"
 	"github.com/artificial-universe-maker/go-utilities/models"
@@ -43,7 +44,7 @@ func LogicLazyEval(stateComms chan models.AumMutableRuntimeState, compiled []byt
 		// First get the length of the string
 		barr, err := r.ReadNBytes(2)
 		if err != nil {
-			ch <- Result{Error: err}
+			ch <- Result{Error: fmt.Errorf("Error reading AlwaysExec length: %s", err.Error())}
 			return
 		}
 		strlen := binary.LittleEndian.Uint16(barr)
@@ -51,12 +52,16 @@ func LogicLazyEval(stateComms chan models.AumMutableRuntimeState, compiled []byt
 		// Read the Redis key for the AlwaysExec Action Bundle
 		execkey, err := r.ReadNBytes(uint64(strlen))
 		if err != nil {
-			ch <- Result{Error: err}
+			ch <- Result{Error: fmt.Errorf("Error reading AlwaysExec key: %s", err.Error())}
 			return
 		}
 
 		// Dispatch
 		ch <- Result{Value: string(execkey)}
+
+		if r.Finished() {
+			return
+		}
 
 		// Get the number of conditional statement blocks
 		numStatements, err := r.ReadByte()
@@ -71,7 +76,7 @@ func LogicLazyEval(stateComms chan models.AumMutableRuntimeState, compiled []byt
 		for i := 0; i < int(numStatements); i++ {
 			barr, err := r.ReadNBytes(8)
 			if err != nil {
-				ch <- Result{Error: err}
+				ch <- Result{Error: fmt.Errorf("Error reqading logical statement: %s", err.Error())}
 				return
 			}
 			stmtlen := binary.LittleEndian.Uint64(barr)
@@ -92,6 +97,7 @@ func LogicLazyEval(stateComms chan models.AumMutableRuntimeState, compiled []byt
 				awaitNewState = true
 			}
 		}
+
 	}()
 
 	return ch

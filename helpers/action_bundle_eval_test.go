@@ -19,7 +19,7 @@ func TestActionBundleEval(t *testing.T) {
 	AAS.PlaySounds[1].Value, _ = url.Parse("https://upload.wikimedia.org/wikipedia/commons/b/bb/Test_ogg_mp3_48kbps.wav")
 
 	runtimeState := models.AumMutableRuntimeState{
-		State:      map[string]string{},
+		State:      map[string]interface{}{},
 		OutputSSML: ssml.NewBuilder(),
 	}
 

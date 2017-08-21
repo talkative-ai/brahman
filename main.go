@@ -7,12 +7,14 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/artificial-universe-maker/go-utilities"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
+	"github.com/artificial-universe-maker/brahman/helpers"
 	"github.com/artificial-universe-maker/go-ssml"
 	"github.com/artificial-universe-maker/go-utilities/keynav"
 	"github.com/artificial-universe-maker/go-utilities/models"
@@ -211,11 +213,82 @@ func initializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 		log.Println("Error", err)
 		return
 	}
-	zone_id := redis.HGet(keynav.GlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val()
-	message.State["zone"] = zone_id
+	projectIDString := redis.HGet(keynav.GlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val()
+	projectID, err := strconv.ParseInt(projectIDString, 10, 64)
+	if err != nil {
+		log.Println("Error", err)
+		return
+	}
+	zoneID := redis.HGet(keynav.ProjectMetadataStatic(uint64(projectID)), "start_zone_id").Val()
+	message.State["zone"] = zoneID
+	message.State["pubid"] = projectIDString
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
 }
 
 func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML = message.OutputSSML.Text("You're in a game!")
+	redis, err := providers.ConnectRedis()
+	if err != nil {
+		log.Println("Error connecting to redis", err)
+		return
+	}
+	projectID, err := strconv.ParseInt(message.State["pubid"].(string), 10, 64)
+	if err != nil {
+		log.Println("Error parsing projectID", err)
+		return
+	}
+	zoneID, err := strconv.ParseInt(message.State["zone"].(string), 10, 64)
+	if err != nil {
+		log.Println("Error parsing zoneID", err)
+		return
+	}
+	var dialogID string
+	if currentDialogKey, ok := message.State["currentDialog"]; ok {
+		split := strings.Split(currentDialogKey.(string), ":")
+		currentDialogID, err := strconv.ParseUint(split[len(split)-1], 10, 64)
+		if err != nil {
+			log.Println("Error parsing current dialog ID", err)
+			return
+		}
+		dialogID = redis.HGet(keynav.CompiledDialogNodeWithinZone(uint64(projectID), uint64(zoneID), currentDialogID), strings.ToUpper(q.Result.ResolvedQuery)).Val()
+	} else {
+		dialogID = redis.HGet(keynav.CompiledDialogRootWithinZone(uint64(projectID), uint64(zoneID)), strings.ToUpper(q.Result.ResolvedQuery)).Val()
+	}
+
+	if dialogID == "" {
+		unknown(q, message)
+		return
+	}
+
+	dialogBinary, err := redis.Get(dialogID).Bytes()
+	if err != nil {
+		log.Println("Error fetching logic binary", dialogID, err)
+		return
+	}
+	stateComms := make(chan models.AumMutableRuntimeState, 1)
+	defer close(stateComms)
+	dialogEnd := dialogBinary[0] == 0
+	dialogBinary = dialogBinary[1:]
+	if dialogEnd {
+		delete(message.State, "currentDialog")
+	} else {
+		message.State["currentDialog"] = dialogID
+	}
+	result := helpers.LogicLazyEval(stateComms, dialogBinary)
+	for res := range result {
+		if res.Error != nil {
+			log.Println("Error with logic evaluation", res.Error)
+			return
+		}
+		bundleBinary, err := redis.Get(res.Value).Bytes()
+		if err != nil {
+			log.Println("Error fetching action bundle binary", err)
+			return
+		}
+		err = helpers.ActionBundleEval(message, bundleBinary)
+		if err != nil {
+			log.Println("Error processing action bundle binary", err)
+			return
+		}
+		stateComms <- *message
+	}
 }
