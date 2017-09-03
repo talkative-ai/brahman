@@ -183,7 +183,7 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 		"state": runtimeState.State,
 	})
 
-	tokenString, err := token.SignedString([]byte("secret"))
+	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_KEY")))
 	if err != nil {
 		log.Println("Error", err)
 		return
@@ -214,7 +214,7 @@ func initializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 		return
 	}
 	projectIDString := redis.HGet(keynav.GlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val()
-	projectID, err := strconv.ParseInt(projectIDString, 10, 64)
+	projectID, err := strconv.ParseUint(projectIDString, 10, 64)
 	if err != nil {
 		log.Println("Error", err)
 		return
@@ -222,6 +222,17 @@ func initializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 	zoneID := redis.HGet(keynav.ProjectMetadataStatic(uint64(projectID)), "start_zone_id").Val()
 	message.State["zone"] = zoneID
 	message.State["pubid"] = projectIDString
+	message.State["zoneActors"] = map[string][]string{}
+	for _, zidString := range redis.SMembers(
+		fmt.Sprintf("%v:%v", keynav.ProjectMetadataStatic(uint64(projectID)), "all_zones")).Val() {
+		zid, err := strconv.ParseUint(zidString, 10, 64)
+		if err != nil {
+			log.Println("Error", err)
+			return
+		}
+		message.State["zoneActors"].(map[string][]string)[zidString] =
+			redis.SMembers(keynav.CompiledActorsWithinZone(projectID, zid)).Val()
+	}
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
 }
 
@@ -231,14 +242,9 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		log.Println("Error connecting to redis", err)
 		return
 	}
-	projectID, err := strconv.ParseInt(message.State["pubid"].(string), 10, 64)
+	projectID, err := strconv.ParseUint(message.State["pubid"].(string), 10, 64)
 	if err != nil {
 		log.Println("Error parsing projectID", err)
-		return
-	}
-	zoneID, err := strconv.ParseInt(message.State["zone"].(string), 10, 64)
-	if err != nil {
-		log.Println("Error parsing zoneID", err)
 		return
 	}
 	var dialogID string
@@ -249,9 +255,31 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 			log.Println("Error parsing current dialog ID", err)
 			return
 		}
-		dialogID = redis.HGet(keynav.CompiledDialogNodeWithinZone(uint64(projectID), uint64(zoneID), currentDialogID), strings.ToUpper(q.Result.ResolvedQuery)).Val()
+		for _, actorIDString := range message.State["zoneActors"].(map[string][]string)[message.State["zone"].(string)] {
+			actorID, err := strconv.ParseUint(actorIDString, 10, 64)
+			if err != nil {
+				log.Println("Error parsing actorID", err)
+				return
+			}
+			v := redis.HGet(keynav.CompiledDialogNodeWithinActor(projectID, actorID, currentDialogID), strings.ToUpper(q.Result.ResolvedQuery))
+			if v.Err() == nil {
+				dialogID = v.Val()
+				break
+			}
+		}
 	} else {
-		dialogID = redis.HGet(keynav.CompiledDialogRootWithinZone(uint64(projectID), uint64(zoneID)), strings.ToUpper(q.Result.ResolvedQuery)).Val()
+		for _, actorIDString := range message.State["zoneActors"].(map[string][]string)[message.State["zone"].(string)] {
+			actorID, err := strconv.ParseUint(actorIDString, 10, 64)
+			if err != nil {
+				log.Println("Error parsing actorID", err)
+				return
+			}
+			v := redis.HGet(keynav.CompiledDialogRootWithinActor(projectID, actorID), strings.ToUpper(q.Result.ResolvedQuery))
+			if v.Err() == nil {
+				dialogID = v.Val()
+				break
+			}
+		}
 	}
 
 	if dialogID == "" {
