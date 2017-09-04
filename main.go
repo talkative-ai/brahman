@@ -137,7 +137,7 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("content-type", "application/json")
 
 	runtimeState := &models.AumMutableRuntimeState{
-		State:      map[string]interface{}{},
+		State:      models.MutableRuntimeState{},
 		OutputSSML: ssml.NewBuilder(),
 	}
 
@@ -158,7 +158,26 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println("Error", err)
 			return
 		}
-		runtimeState.State = claims["state"].(map[string]interface{})
+		stateMap := claims["state"].(map[string]interface{})
+
+		runtimeState.State = models.MutableRuntimeState{
+			Zone:  stateMap["Zone"].(string),
+			PubID: stateMap["PubID"].(string),
+		}
+		runtimeState.State.ZoneActors = map[string][]string{}
+		for zone, actors := range stateMap["ZoneActors"].(map[string]interface{}) {
+			runtimeState.State.ZoneActors[zone] = []string{}
+			for _, actor := range actors.([]interface{}) {
+				runtimeState.State.ZoneActors[zone] = append(runtimeState.State.ZoneActors[zone], actor.(string))
+			}
+		}
+		if (stateMap["CurrentDialog"]) == nil {
+			runtimeState.State.CurrentDialog = nil
+		} else {
+			s := stateMap["CurrentDialog"].(string)
+			runtimeState.State.CurrentDialog = &s
+		}
+		fmt.Println("%+v", runtimeState)
 		hasGameToken = true
 	}
 
@@ -220,9 +239,9 @@ func initializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 		return
 	}
 	zoneID := redis.HGet(keynav.ProjectMetadataStatic(uint64(projectID)), "start_zone_id").Val()
-	message.State["zone"] = zoneID
-	message.State["pubid"] = projectIDString
-	message.State["zoneActors"] = map[string][]string{}
+	message.State.Zone = zoneID
+	message.State.PubID = projectIDString
+	message.State.ZoneActors = map[string][]string{}
 	for _, zidString := range redis.SMembers(
 		fmt.Sprintf("%v:%v", keynav.ProjectMetadataStatic(uint64(projectID)), "all_zones")).Val() {
 		zid, err := strconv.ParseUint(zidString, 10, 64)
@@ -230,7 +249,7 @@ func initializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 			log.Println("Error", err)
 			return
 		}
-		message.State["zoneActors"].(map[string][]string)[zidString] =
+		message.State.ZoneActors[zidString] =
 			redis.SMembers(keynav.CompiledActorsWithinZone(projectID, zid)).Val()
 	}
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
@@ -242,20 +261,22 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		log.Println("Error connecting to redis", err)
 		return
 	}
-	projectID, err := strconv.ParseUint(message.State["pubid"].(string), 10, 64)
+	projectID, err := strconv.ParseUint(message.State.PubID, 10, 64)
 	if err != nil {
 		log.Println("Error parsing projectID", err)
 		return
 	}
 	var dialogID string
-	if currentDialogKey, ok := message.State["currentDialog"]; ok {
-		split := strings.Split(currentDialogKey.(string), ":")
+	fmt.Printf("%+v", message.State)
+	if message.State.CurrentDialog != nil {
+		currentDialogKey := *message.State.CurrentDialog
+		split := strings.Split(currentDialogKey, ":")
 		currentDialogID, err := strconv.ParseUint(split[len(split)-1], 10, 64)
 		if err != nil {
 			log.Println("Error parsing current dialog ID", err)
 			return
 		}
-		for _, actorIDString := range message.State["zoneActors"].(map[string][]string)[message.State["zone"].(string)] {
+		for _, actorIDString := range message.State.ZoneActors[message.State.Zone] {
 			actorID, err := strconv.ParseUint(actorIDString, 10, 64)
 			if err != nil {
 				log.Println("Error parsing actorID", err)
@@ -268,7 +289,7 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 			}
 		}
 	} else {
-		for _, actorIDString := range message.State["zoneActors"].(map[string][]string)[message.State["zone"].(string)] {
+		for _, actorIDString := range message.State.ZoneActors[message.State.Zone] {
 			actorID, err := strconv.ParseUint(actorIDString, 10, 64)
 			if err != nil {
 				log.Println("Error parsing actorID", err)
@@ -297,9 +318,9 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 	dialogEnd := dialogBinary[0] == 0
 	dialogBinary = dialogBinary[1:]
 	if dialogEnd {
-		delete(message.State, "currentDialog")
+		message.State.CurrentDialog = nil
 	} else {
-		message.State["currentDialog"] = dialogID
+		message.State.CurrentDialog = &dialogID
 	}
 	result := helpers.LogicLazyEval(stateComms, dialogBinary)
 	for res := range result {
