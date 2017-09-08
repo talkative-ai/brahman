@@ -71,6 +71,7 @@ func main() {
 	http.HandleFunc("/v1/google/auth", googleAuthHandler)
 	http.HandleFunc("/v1/google/auth.token", googleAuthTokenHandler)
 
+	log.Println("Brahman starting server on localhost:8085")
 	http.ListenAndServe(":8085", nil)
 }
 
