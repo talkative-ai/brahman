@@ -131,9 +131,10 @@ func Choose(list []string) string {
 
 func actionHandler(w http.ResponseWriter, r *http.Request) {
 
-	os.Setenv("REDIS_ADDR", "localhost:6379")
-	os.Setenv("REDIS_PASSWORD", "")
-	os.Setenv("JWT_KEY", "secret")
+	if os.Getenv("REDIS_ADDR") == "" {
+		os.Setenv("REDIS_ADDR", "127.0.0.1:6379")
+		os.Setenv("REDIS_PASSWORD", "")
+	}
 
 	w.Header().Add("content-type", "application/json")
 
