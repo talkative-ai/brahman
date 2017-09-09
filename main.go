@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/artificial-universe-maker/go-utilities/db"
+
 	"github.com/artificial-universe-maker/go-utilities"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
@@ -268,8 +270,19 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		log.Println("Error parsing projectID", err)
 		return
 	}
+	db.InitializeDB()
 	var dialogID string
 	fmt.Printf("%+v", message.State)
+	eventIDChan := make(chan uint64)
+	go func() {
+		var newID uint64
+		err = db.Instance.QueryRow(`INSERT INTO event_user_action ("UserID", "PubID", "RawInput") VALUES ($1, $2, $3) RETURNING "ID"`, 1, projectID, q.Result.ResolvedQuery).Scan(&newID)
+		if err != nil {
+			// TODO: Log this error somewhere
+			return
+		}
+		eventIDChan <- newID
+	}()
 	if message.State.CurrentDialog != nil {
 		currentDialogKey := *message.State.CurrentDialog
 		split := strings.Split(currentDialogKey, ":")
@@ -324,6 +337,7 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 	} else {
 		message.State.CurrentDialog = &dialogID
 	}
+	stateChange := false
 	result := helpers.LogicLazyEval(stateComms, dialogBinary)
 	for res := range result {
 		if res.Error != nil {
@@ -341,5 +355,11 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 			return
 		}
 		stateComms <- *message
+	}
+	stateChange = true
+	if stateChange {
+		newID := <-eventIDChan
+		stateObject, _ := message.State.Value()
+		go db.Instance.QueryRow(`INSERT INTO event_state_change ("EventUserActionID", "StateObject") VALUES ($1, $2)`, newID, stateObject)
 	}
 }
