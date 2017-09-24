@@ -1,0 +1,51 @@
+<html>
+  <head>
+    <script src="https://apis.google.com/js/api.js"></script>
+  </head>
+  <body>
+    <script>
+      var state = ${state};
+      var redirectURI = ${redirectURI};
+      gapi.load('client:auth2', function () {
+        gapi.client.init({
+          client_id: '693388894852-au9efqfp65poqd7qet6l54n9cqdcvhv6.apps.googleusercontent.com',
+          scope: 'profile email'
+        }).then(function () {
+          gapi.auth2.getAuthInstance().currentUser.listen(onSignIn);
+          var isSignedIn = gapi.auth2.getAuthInstance().isSignedIn.get();
+          if (isSignedIn) {
+            onSignIn(gapi.auth2.getAuthInstance().currentUser.get())
+          } else {
+            // TODO: Handle errors here
+            gapi.auth2.getAuthInstance().signIn();
+          }
+        });
+      });
+      function onSignIn(data) {
+
+        var myHeaders = new Headers()
+        myHeaders.append('content-type', 'application/json')
+
+        const config = {
+          method: 'GET',
+          headers: myHeaders,
+          mode: 'cors',
+          cache: 'default'
+        }
+
+        var token = data.getAuthResponse().id_token;
+        var givenName = data.getBasicProfile().getGivenName();
+        var familyName = data.getBasicProfile().getFamilyName();
+
+        var req = new Request('https://shiva.ngrok.io/v1/auth/google?token=' + token + '&gn=' + givenName + '&fn=' + familyName, config)
+        return fetch(req)
+        .then(result => {
+          // TODO: Handle errors here
+          var token = result.headers.get('x-token')
+          location.replace(redirectURI + '#access_token=' + token + '&token_type=bearer&state=' + state);
+        })
+      }
+    </script>
+    Authenticate
+  </body>
+</html>

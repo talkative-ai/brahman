@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -88,7 +89,7 @@ func googleAuthTokenHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func googleAuthHandler(w http.ResponseWriter, r *http.Request) {
-	//https://brahman.ngrok.io/v1/google/auth?response_type=token&client_id=558300683184-vqt364nq9hko57c81gia7fkiclkt1ste.apps.googleusercontent.com&redirect_uri=https://oauth-redirect.googleusercontent.com/r/artificial-universe-make-7ef2b&scope=email+name&state=CoIDQUZEXzV0a2FxNDhCZkpIeUxZaGVTc2otQkFfVlRib2VpNnhCeGdsOF91UmROWkF2LXNoV1JwQkNhN1F5alRIc2pYWkN2bURneUxGNVluOFVhNlRabkUtSkRWaUpFOXdGS1ZBemhpQlQ2R2ZycEhkMDRPVnFTbzIxbVRaNVQ2U2M1eUpFLS0xNHpyVXRaS055eVk5UW9WQ3BJeVRYOFhjMGxsbFltY1VPLVRaN0NsQnk2b0FONVdONmlYVW1Mdko2bEppQkhGYVlYdTViUml4ZEt5VV9EajhvUHlwN185aWx2czRHdnNuTVhUMWx3dDQ2akhMVWpyeldjcUtKTU1tUmotTFNVa2tfeXpUVVo2aEpJZ0t3elNpSTZrWUpzekhZSkstVVBQX0M2eE5kNmpXV0Z5TklLNWxWV1VVWjNYTG1qRmVPVk9nejRkVzBya2E5MVQzc1VWeE1QZXZUektyZGRTM0Q5Y2hwaEtrQ0ZKeVFGbk16R2d6aFI1QmZvUElmTUESF2h0dHBzOi8vd3d3Lmdvb2dsZS5jb20vIk1odHRwczovL29hdXRoLXJlZGlyZWN0Lmdvb2dsZXVzZXJjb250ZW50LmNvbS9yL2FydGlmaWNpYWwtdW5pdmVyc2UtbWFrZS03ZWYyYjIiYXJ0aWZpY2lhbC11bml2ZXJzZS1tYWtlLTdlZjJiX2Rldg
+
 	clientID := r.FormValue("client_id")
 	if clientID != AuthGoogleClientID {
 		fmt.Println("Invalid client id", clientID)
@@ -104,11 +105,13 @@ func googleAuthHandler(w http.ResponseWriter, r *http.Request) {
 
 	stateString := r.FormValue("state")
 
-	for k, v := range r.Form {
-		fmt.Println("Key:", k, "Val:", v)
+	if data, err := ioutil.ReadFile("./auth.html"); err == nil {
+		template := strings.Replace(string(data), "${state}", fmt.Sprintf(`"%v"`, stateString), 1)
+		template = strings.Replace(template, "${redirectURI}", fmt.Sprintf(`"%v"`, redirectURI), 1)
+		w.Write([]byte(template))
+	} else {
+		panic(err)
 	}
-
-	http.Redirect(w, r, fmt.Sprintf("%v#access_token=123&token_type=bearer&state=%v", redirectURI, stateString), 302)
 }
 
 func Prepare(msg ssml.Builder) (prepared map[string]string) {
