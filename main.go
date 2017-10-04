@@ -118,7 +118,12 @@ func googleAuthHandler(w http.ResponseWriter, r *http.Request) {
 
 	stateString := r.FormValue("state")
 
-	if data, err := ioutil.ReadFile("./auth.html"); err == nil {
+	pwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+
+	if data, err := ioutil.ReadFile(pwd + "/auth.html"); err == nil {
 		template := strings.Replace(string(data), "${state}", fmt.Sprintf(`"%v"`, stateString), 1)
 		template = strings.Replace(template, "${redirectURI}", fmt.Sprintf(`"%v"`, redirectURI), 1)
 		w.Write([]byte(template))
