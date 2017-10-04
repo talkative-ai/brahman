@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/artificial-universe-maker/go-utilities/db"
 
@@ -75,7 +78,17 @@ func main() {
 	http.HandleFunc("/v1/google/auth.token", googleAuthTokenHandler)
 
 	log.Println("Brahman starting server on localhost:8080")
-	http.ListenAndServe(":8080", nil)
+	m := autocert.Manager{
+		Cache:      autocert.DirCache("secret-dir"),
+		Prompt:     autocert.AcceptTOS,
+		HostPolicy: autocert.HostWhitelist("api.aum.ai"),
+		Email:      "info@aum.ai",
+	}
+	s := &http.Server{
+		Addr:      ":8080",
+		TLSConfig: &tls.Config{GetCertificate: m.GetCertificate},
+	}
+	log.Fatal(s.ListenAndServeTLS("", ""))
 }
 
 const (
