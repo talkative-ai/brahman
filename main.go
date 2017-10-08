@@ -70,6 +70,10 @@ func main() {
 		"game.initialize": initializeGame,
 	}
 
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+
 	http.HandleFunc("/v1/google", actionHandler)
 	http.HandleFunc("/v1/google/auth", googleAuthHandler)
 	http.HandleFunc("/v1/google/auth.token", googleAuthTokenHandler)
