@@ -74,9 +74,9 @@ func main() {
 		w.WriteHeader(200)
 	})
 
-	http.HandleFunc("/v1/google", actionHandler)
-	http.HandleFunc("/v1/google/auth", googleAuthHandler)
-	http.HandleFunc("/v1/google/auth.token", googleAuthTokenHandler)
+	http.HandleFunc("/ai/v1/google", actionHandler)
+	http.HandleFunc("/ai/v1/google/auth", googleAuthHandler)
+	http.HandleFunc("/ai/v1/google/auth.token", googleAuthTokenHandler)
 
 	log.Println("Brahman starting server on localhost:8080")
 
