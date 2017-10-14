@@ -37,7 +37,7 @@
         var givenName = data.getBasicProfile().getGivenName();
         var familyName = data.getBasicProfile().getFamilyName();
 
-        var req = new Request('/ai/v1/google/auth?token=' + token + '&gn=' + givenName + '&fn=' + familyName, config)
+        var req = new Request('/ai/v1/google/auth.token?token=' + token + '&gn=' + givenName + '&fn=' + familyName, config)
         return fetch(req)
         .then(result => {
           // TODO: Handle errors here

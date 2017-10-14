@@ -90,23 +90,10 @@ const (
 )
 
 func googleAuthTokenHandler(w http.ResponseWriter, r *http.Request) {
-
+	// TODO: Verify if the user exists. If not, create account and sign in, else sign in
 }
 
 func googleAuthHandler(w http.ResponseWriter, r *http.Request) {
-
-	clientID := r.FormValue("client_id")
-	if clientID != AuthGoogleClientID {
-		fmt.Println("Invalid client id", clientID)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	redirectURI := r.FormValue("redirect_uri")
-	if redirectURI != AuthGoogleRedirectURI && redirectURI != AuthGoogleDevRedirectURI {
-		fmt.Println("Invalid redirect URI", redirectURI)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
 
 	stateString := r.FormValue("state")
 
@@ -117,7 +104,7 @@ func googleAuthHandler(w http.ResponseWriter, r *http.Request) {
 
 	if data, err := ioutil.ReadFile(pwd + "/auth.html"); err == nil {
 		template := strings.Replace(string(data), "${state}", fmt.Sprintf(`"%v"`, stateString), 1)
-		template = strings.Replace(template, "${redirectURI}", fmt.Sprintf(`"%v"`, redirectURI), 1)
+		template = strings.Replace(template, "${redirectURI}", fmt.Sprintf(`"%v"`, AuthGoogleRedirectURI), 1)
 		w.Write([]byte(template))
 	} else {
 		panic(err)
