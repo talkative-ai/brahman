@@ -70,7 +70,7 @@ func main() {
 		"game.initialize": initializeGame,
 	}
 
-	http.HandleFunc("/ai/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	})
 
