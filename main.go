@@ -84,7 +84,7 @@ func main() {
 }
 
 const (
-	AuthGoogleClientID       = "558300683184-vqt364nq9hko57c81gia7fkiclkt1ste.apps.googleusercontent.com"
+	AuthGoogleClientID       = "693388894852-au9efqfp65poqd7qet6l54n9cqdcvhv6.apps.googleusercontent.com"
 	AuthGoogleRedirectURI    = "https://oauth-redirect.googleusercontent.com/r/artificial-universe-make-7ef2b"
 	AuthGoogleDevRedirectURI = "https://developers.google.com/oauthplayground"
 )
