@@ -13,13 +13,12 @@ import (
 	"time"
 
 	"github.com/artificial-universe-maker/go-utilities/db"
+	"github.com/go-redis/redis"
 
 	"github.com/artificial-universe-maker/go-utilities"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
-	"github.com/artificial-universe-maker/brahman/helpers"
 	"github.com/artificial-universe-maker/go-ssml"
-	"github.com/artificial-universe-maker/go-utilities/keynav"
 	"github.com/artificial-universe-maker/go-utilities/models"
 	"github.com/artificial-universe-maker/go-utilities/providers"
 	jwt "github.com/dgrijalva/jwt-go"
@@ -236,27 +235,31 @@ func initializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 		log.Println("Error", err)
 		return
 	}
-	projectIDString := redis.HGet(keynav.GlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val()
+	projectIDString := redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val()
 	projectID, err := strconv.ParseUint(projectIDString, 10, 64)
 	if err != nil {
 		log.Println("Error", err)
 		return
 	}
-	zoneID := redis.HGet(keynav.ProjectMetadataStatic(uint64(projectID)), "start_zone_id").Val()
-	message.State.Zone = zoneID
 	message.State.PubID = projectIDString
 	message.State.ZoneActors = map[string][]string{}
 	for _, zidString := range redis.SMembers(
-		fmt.Sprintf("%v:%v", keynav.ProjectMetadataStatic(uint64(projectID)), "all_zones")).Val() {
+		fmt.Sprintf("%v:%v", models.KeynavProjectMetadataStatic(uint64(projectID)), "all_zones")).Val() {
 		zid, err := strconv.ParseUint(zidString, 10, 64)
 		if err != nil {
 			log.Println("Error", err)
 			return
 		}
 		message.State.ZoneActors[zidString] =
-			redis.SMembers(keynav.CompiledActorsWithinZone(projectID, zid)).Val()
+			redis.SMembers(models.KeynavCompiledActorsWithinZone(projectID, zid)).Val()
 	}
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
+
+	zoneID := redis.HGet(models.KeynavProjectMetadataStatic(uint64(projectID)), "start_zone_id").Val()
+	zoneIDInt, _ := strconv.ParseUint(zoneID, 10, 64)
+	setZone := models.ARASetZone(zoneIDInt)
+	setZone.Execute(message)
+
 }
 
 func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
@@ -297,7 +300,7 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 				log.Println("Error parsing actorID", err)
 				return
 			}
-			v := redis.HGet(keynav.CompiledDialogNodeWithinActor(projectID, actorID, currentDialogID), strings.ToUpper(q.Result.ResolvedQuery))
+			v := redis.HGet(models.KeynavCompiledDialogNodeWithinActor(projectID, actorID, currentDialogID), strings.ToUpper(q.Result.ResolvedQuery))
 			if v.Err() == nil {
 				dialogID = v.Val()
 				break
@@ -310,7 +313,7 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 				log.Println("Error parsing actorID", err)
 				return
 			}
-			v := redis.HGet(keynav.CompiledDialogRootWithinActor(projectID, actorID), strings.ToUpper(q.Result.ResolvedQuery))
+			v := redis.HGet(models.KeynavCompiledDialogRootWithinActor(projectID, actorID), strings.ToUpper(q.Result.ResolvedQuery))
 			if v.Err() == nil {
 				dialogID = v.Val()
 				break
@@ -338,7 +341,7 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		message.State.CurrentDialog = &dialogID
 	}
 	stateChange := false
-	result := helpers.LogicLazyEval(stateComms, dialogBinary)
+	result := models.LogicLazyEval(stateComms, dialogBinary)
 	for res := range result {
 		if res.Error != nil {
 			log.Println("Error with logic evaluation", res.Error)
@@ -349,7 +352,7 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 			log.Println("Error fetching action bundle binary", err)
 			return
 		}
-		err = helpers.ActionBundleEval(message, bundleBinary)
+		err = models.ActionBundleEval(message, bundleBinary)
 		if err != nil {
 			log.Println("Error processing action bundle binary", err)
 			return
@@ -362,4 +365,12 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		stateObject, _ := message.State.Value()
 		go db.Instance.QueryRow(`INSERT INTO event_state_change ("EventUserActionID", "StateObject") VALUES ($1, $2)`, newID, stateObject)
 	}
+}
+
+func enterZone(message *models.AumMutableRuntimeState, redis *redis.Client) {
+	// Set zone
+
+	// Initialize zone trigger if uninitialized
+
+	// Enter zone trigger
 }
