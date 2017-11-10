@@ -252,6 +252,7 @@ func initializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 		}
 		message.State.ZoneActors[zidString] =
 			redis.SMembers(models.KeynavCompiledActorsWithinZone(projectID, zid)).Val()
+		message.State.ZoneInitialized[zidString] = false
 	}
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
 
