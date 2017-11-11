@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/artificial-universe-maker/go-utilities/db"
+	"github.com/artificial-universe-maker/core/db"
 
-	"github.com/artificial-universe-maker/go-utilities"
+	"github.com/artificial-universe-maker/core"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
 	"github.com/artificial-universe-maker/brahman/intent_handlers"
 	"github.com/artificial-universe-maker/go-ssml"
-	"github.com/artificial-universe-maker/go-utilities/models"
-	"github.com/artificial-universe-maker/go-utilities/providers"
+	"github.com/artificial-universe-maker/core/models"
+	"github.com/artificial-universe-maker/core/providers"
 	jwt "github.com/dgrijalva/jwt-go"
 )
 

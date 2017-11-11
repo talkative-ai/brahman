@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
-	"github.com/artificial-universe-maker/go-utilities/common"
-	"github.com/artificial-universe-maker/go-utilities/models"
-	"github.com/artificial-universe-maker/go-utilities/providers"
+	"github.com/artificial-universe-maker/core/common"
+	"github.com/artificial-universe-maker/core/models"
+	"github.com/artificial-universe-maker/core/providers"
 )
 
 // RandomStringCollection is a collection of potential strings categorized under a string key
