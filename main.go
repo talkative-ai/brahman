@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,67 +12,24 @@ import (
 	"time"
 
 	"github.com/artificial-universe-maker/go-utilities/db"
-	"github.com/go-redis/redis"
 
 	"github.com/artificial-universe-maker/go-utilities"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
+	"github.com/artificial-universe-maker/brahman/intent_handlers"
 	"github.com/artificial-universe-maker/go-ssml"
 	"github.com/artificial-universe-maker/go-utilities/models"
 	"github.com/artificial-universe-maker/go-utilities/providers"
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-type ActionHandler func(*actions.ApiAiRequest, *models.AumMutableRuntimeState)
-
-var RSIntro map[string][]string
-var RSCustom map[string][]string
-var ActionHandlers map[string]ActionHandler
-
 func main() {
-
-	RSIntro = map[string][]string{
-		"input.welcome": []string{
-			"Hi there!",
-			"Hey!",
-		},
-		"list.games": []string{
-			"There's a ton of games.",
-		},
-	}
-
-	RSCustom = map[string][]string{
-		"unknown": []string{
-			"I'm not sure I understand.",
-			"Sorry, I don't think I get that.",
-			"That doesn't make sense to me, sorry.",
-		},
-		"hint actions after list.games": []string{
-			"Or would you like to hear some genres?",
-			"There's a lot of genres too.",
-		},
-		"wrap new title": []string{
-			"Recently, an adventure named \"%s\" was published.",
-			"There's this one called \"%s\" that's fresh off the press.",
-		},
-		"introduce": []string{
-			"This is your buddy AUM.",
-			"This is AUM speaking.",
-			"AUM here, very nice to see you.",
-		},
-	}
-
-	ActionHandlers = map[string]ActionHandler{
-		"input.welcome":   welcome,
-		"list.games":      listGames,
-		"game.initialize": initializeGame,
-	}
 
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	})
 
-	http.HandleFunc("/ai/v1/google", actionHandler)
+	http.HandleFunc("/ai/v1/google", AIRequestHandler)
 	http.HandleFunc("/ai/v1/google/auth", googleAuthHandler)
 	http.HandleFunc("/ai/v1/google/auth.token", googleAuthTokenHandler)
 
@@ -81,12 +37,6 @@ func main() {
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
-
-const (
-	AuthGoogleClientID       = "693388894852-au9efqfp65poqd7qet6l54n9cqdcvhv6.apps.googleusercontent.com"
-	AuthGoogleRedirectURI    = "https://oauth-redirect.googleusercontent.com/r/artificial-universe-make-7ef2b"
-	AuthGoogleDevRedirectURI = "https://developers.google.com/oauthplayground"
-)
 
 func googleAuthTokenHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: Verify if the user exists. If not, create account and sign in, else sign in
@@ -103,34 +53,17 @@ func googleAuthHandler(w http.ResponseWriter, r *http.Request) {
 
 	if data, err := ioutil.ReadFile(pwd + "/auth.html"); err == nil {
 		template := strings.Replace(string(data), "${state}", fmt.Sprintf(`"%v"`, stateString), 1)
-		template = strings.Replace(template, "${redirectURI}", fmt.Sprintf(`"%v"`, AuthGoogleRedirectURI), 1)
+		template = strings.Replace(template, "${redirectURI}", fmt.Sprintf(`"%v"`, os.Getenv("AuthGoogleRedirectURI")), 1)
 		w.Write([]byte(template))
 	} else {
 		panic(err)
 	}
 }
 
-func Prepare(msg ssml.Builder) (prepared map[string]string) {
-	prepared = map[string]string{
-		"speech":      msg.String(),
-		"displayText": msg.String(),
-	}
-	return
-}
-
-func pseudoRand(max int) int {
-	rand.Seed(time.Now().UTC().UnixNano())
-	return rand.Intn(max)
-}
-
-func Choose(list []string) string {
-	if len(list) == 1 {
-		return list[0]
-	}
-	return list[pseudoRand(len(list))]
-}
-
-func actionHandler(w http.ResponseWriter, r *http.Request) {
+// AIRequestHandler handles requests that expect language parsing and an AI response
+// Currently expects ApiAi requests
+// This is the core functionality of Brahman, which routes to appropriate IntentHandlers
+func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	if os.Getenv("REDIS_ADDR") == "" {
 		os.Setenv("REDIS_ADDR", "127.0.0.1:6379")
@@ -180,20 +113,15 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 			s := stateMap["CurrentDialog"].(string)
 			runtimeState.State.CurrentDialog = &s
 		}
-		fmt.Println("%+v", runtimeState)
 		hasGameToken = true
 	}
 
 	if hasGameToken {
 		ingameHandler(input, runtimeState)
+	} else if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
+		handler(input, runtimeState)
 	} else {
-		if responseStrings, ok := RSIntro[input.Result.Metadata.IntentName]; ok {
-			runtimeState.OutputSSML = runtimeState.OutputSSML.Text(Choose(responseStrings))
-		} else if handler, ok := ActionHandlers[input.Result.Metadata.IntentName]; ok {
-			handler(input, runtimeState)
-		} else {
-			unknown(input, runtimeState)
-		}
+		intentHandlers.Unknown(input, runtimeState)
 	}
 
 	response := actions.ServiceResponse{
@@ -215,52 +143,6 @@ func actionHandler(w http.ResponseWriter, r *http.Request) {
 	response.ContextOut = &[]actions.ApiAiContext{tokenOut}
 
 	json.NewEncoder(w).Encode(response)
-}
-
-func listGames(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["hint actions after list.games"]))
-}
-
-func welcome(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["introduce"]))
-}
-
-func unknown(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML = message.OutputSSML.Text(Choose(RSCustom["unknown"]))
-}
-
-func initializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	redis, err := providers.ConnectRedis()
-	if err != nil {
-		log.Println("Error", err)
-		return
-	}
-	projectIDString := redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val()
-	projectID, err := strconv.ParseUint(projectIDString, 10, 64)
-	if err != nil {
-		log.Println("Error", err)
-		return
-	}
-	message.State.PubID = projectIDString
-	message.State.ZoneActors = map[string][]string{}
-	for _, zidString := range redis.SMembers(
-		fmt.Sprintf("%v:%v", models.KeynavProjectMetadataStatic(uint64(projectID)), "all_zones")).Val() {
-		zid, err := strconv.ParseUint(zidString, 10, 64)
-		if err != nil {
-			log.Println("Error", err)
-			return
-		}
-		message.State.ZoneActors[zidString] =
-			redis.SMembers(models.KeynavCompiledActorsWithinZone(projectID, zid)).Val()
-		message.State.ZoneInitialized[zidString] = false
-	}
-	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
-
-	zoneID := redis.HGet(models.KeynavProjectMetadataStatic(uint64(projectID)), "start_zone_id").Val()
-	zoneIDInt, _ := strconv.ParseUint(zoneID, 10, 64)
-	setZone := models.ARASetZone(zoneIDInt)
-	setZone.Execute(message)
-
 }
 
 func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
@@ -323,7 +205,7 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 	}
 
 	if dialogID == "" {
-		unknown(q, message)
+		intentHandlers.Unknown(q, message)
 		return
 	}
 
@@ -366,12 +248,4 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		stateObject, _ := message.State.Value()
 		go db.Instance.QueryRow(`INSERT INTO event_state_change ("EventUserActionID", "StateObject") VALUES ($1, $2)`, newID, stateObject)
 	}
-}
-
-func enterZone(message *models.AumMutableRuntimeState, redis *redis.Client) {
-	// Set zone
-
-	// Initialize zone trigger if uninitialized
-
-	// Enter zone trigger
 }
