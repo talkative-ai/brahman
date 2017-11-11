@@ -80,7 +80,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 	input := &actions.ApiAiRequest{}
 	err := json.NewDecoder(r.Body).Decode(input)
 	if err != nil {
-		log.Println("Error", err)
+		log.Fatal("Error", err)
 		return
 	}
 
@@ -91,7 +91,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		claims, err := utilities.ParseJTWClaims(ctx.Parameters["token"])
 		if err != nil {
-			log.Println("Error", err)
+			log.Fatal("Error", err)
 			return
 		}
 		stateMap := claims["state"].(map[string]interface{})
@@ -135,7 +135,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_KEY")))
 	if err != nil {
-		log.Println("Error", err)
+		log.Fatal("Error", err)
 		return
 	}
 
@@ -148,15 +148,19 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 	redis, err := providers.ConnectRedis()
 	if err != nil {
-		log.Println("Error connecting to redis", err)
+		log.Fatal("Error connecting to redis", err)
 		return
 	}
 	projectID, err := strconv.ParseUint(message.State.PubID, 10, 64)
 	if err != nil {
-		log.Println("Error parsing projectID", err)
+		log.Fatal("Error parsing projectID", err)
 		return
 	}
-	db.InitializeDB()
+	err = db.InitializeDB()
+	if err != nil {
+		log.Fatal("Error parsing projectID", err)
+		return
+	}
 	var dialogID string
 	fmt.Printf("%+v", message.State)
 	eventIDChan := make(chan uint64)
@@ -174,13 +178,13 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		split := strings.Split(currentDialogKey, ":")
 		currentDialogID, err := strconv.ParseUint(split[len(split)-1], 10, 64)
 		if err != nil {
-			log.Println("Error parsing current dialog ID", err)
+			log.Fatal("Error parsing current dialog ID", err)
 			return
 		}
 		for _, actorIDString := range message.State.ZoneActors[message.State.Zone] {
 			actorID, err := strconv.ParseUint(actorIDString, 10, 64)
 			if err != nil {
-				log.Println("Error parsing actorID", err)
+				log.Fatal("Error parsing actorID", err)
 				return
 			}
 			v := redis.HGet(models.KeynavCompiledDialogNodeWithinActor(projectID, actorID, currentDialogID), strings.ToUpper(q.Result.ResolvedQuery))
@@ -193,7 +197,7 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		for _, actorIDString := range message.State.ZoneActors[message.State.Zone] {
 			actorID, err := strconv.ParseUint(actorIDString, 10, 64)
 			if err != nil {
-				log.Println("Error parsing actorID", err)
+				log.Fatal("Error parsing actorID", err)
 				return
 			}
 			v := redis.HGet(models.KeynavCompiledDialogRootWithinActor(projectID, actorID), strings.ToUpper(q.Result.ResolvedQuery))
@@ -211,7 +215,7 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 
 	dialogBinary, err := redis.Get(dialogID).Bytes()
 	if err != nil {
-		log.Println("Error fetching logic binary", dialogID, err)
+		log.Fatal("Error fetching logic binary", dialogID, err)
 		return
 	}
 	stateComms := make(chan models.AumMutableRuntimeState, 1)
@@ -227,17 +231,17 @@ func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 	result := models.LogicLazyEval(stateComms, dialogBinary)
 	for res := range result {
 		if res.Error != nil {
-			log.Println("Error with logic evaluation", res.Error)
+			log.Fatal("Error with logic evaluation", res.Error)
 			return
 		}
 		bundleBinary, err := redis.Get(res.Value).Bytes()
 		if err != nil {
-			log.Println("Error fetching action bundle binary", err)
+			log.Fatal("Error fetching action bundle binary", err)
 			return
 		}
 		err = models.ActionBundleEval(message, bundleBinary)
 		if err != nil {
-			log.Println("Error processing action bundle binary", err)
+			log.Fatal("Error processing action bundle binary", err)
 			return
 		}
 		stateComms <- *message
