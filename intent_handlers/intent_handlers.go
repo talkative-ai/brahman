@@ -48,12 +48,12 @@ var List = map[string]IntentHandler{
 
 // Welcome IntentHandler provides an introduction to AUM
 func Welcome(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["introduce"]).(string))
+	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["introduce"]))
 }
 
 // Unknown IntentHandler handles all unknown intents
 func Unknown(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["unknown"]).(string))
+	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["unknown"]))
 }
 
 // InitializeGame IntentHandler will begin a specified game if it exists
