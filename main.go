@@ -17,9 +17,9 @@ import (
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
 	"github.com/artificial-universe-maker/brahman/intent_handlers"
-	"github.com/artificial-universe-maker/go-ssml"
 	"github.com/artificial-universe-maker/core/models"
 	"github.com/artificial-universe-maker/core/providers"
+	"github.com/artificial-universe-maker/go-ssml"
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
@@ -101,10 +101,12 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 			PubID: stateMap["PubID"].(string),
 		}
 		runtimeState.State.ZoneActors = map[string][]string{}
-		for zone, actors := range stateMap["ZoneActors"].(map[string]interface{}) {
-			runtimeState.State.ZoneActors[zone] = []string{}
-			for _, actor := range actors.([]interface{}) {
-				runtimeState.State.ZoneActors[zone] = append(runtimeState.State.ZoneActors[zone], actor.(string))
+		if stateMap["ZoneActors"] != nil {
+			for zone, actors := range stateMap["ZoneActors"].(map[string]interface{}) {
+				runtimeState.State.ZoneActors[zone] = []string{}
+				for _, actor := range actors.([]interface{}) {
+					runtimeState.State.ZoneActors[zone] = append(runtimeState.State.ZoneActors[zone], actor.(string))
+				}
 			}
 		}
 		if (stateMap["CurrentDialog"]) == nil {

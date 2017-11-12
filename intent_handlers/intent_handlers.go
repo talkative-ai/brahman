@@ -48,12 +48,12 @@ var List = map[string]IntentHandler{
 
 // Welcome IntentHandler provides an introduction to AUM
 func Welcome(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML = message.OutputSSML.Text(common.Choose(IntentResponses["introduce"]).(string))
+	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["introduce"]).(string))
 }
 
 // Unknown IntentHandler handles all unknown intents
 func Unknown(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	message.OutputSSML = message.OutputSSML.Text(common.Choose(IntentResponses["unknown"]).(string))
+	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["unknown"]).(string))
 }
 
 // InitializeGame IntentHandler will begin a specified game if it exists
@@ -71,6 +71,7 @@ func InitializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 	}
 	message.State.PubID = projectIDString
 	message.State.ZoneActors = map[string][]string{}
+	message.State.ZoneInitialized = map[string]bool{}
 	for _, zidString := range redis.SMembers(
 		fmt.Sprintf("%v:%v", models.KeynavProjectMetadataStatic(uint64(projectID)), "all_zones")).Val() {
 		zid, err := strconv.ParseUint(zidString, 10, 64)
@@ -83,7 +84,6 @@ func InitializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 		message.State.ZoneInitialized[zidString] = false
 	}
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
-
 	zoneID := redis.HGet(models.KeynavProjectMetadataStatic(uint64(projectID)), "start_zone_id").Val()
 	zoneIDInt, _ := strconv.ParseUint(zoneID, 10, 64)
 	setZone := models.ARASetZone(zoneIDInt)
