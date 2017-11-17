@@ -116,6 +116,14 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 			runtimeState.State.CurrentDialog = &s
 		}
 		hasGameToken = true
+
+		// TODO: Generalize this and create consistency between brahman/intent_handlers
+		if stateMap["ZoneInitialized"] != nil {
+			runtimeState.State.ZoneInitialized = map[string]bool{}
+			for key, item := range stateMap["ZoneInitialized"].(map[string]interface{}) {
+				runtimeState.State.ZoneInitialized[key] = item.(bool)
+			}
+		}
 	}
 
 	if hasGameToken {
