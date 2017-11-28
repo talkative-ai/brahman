@@ -3,8 +3,9 @@ package intentHandlers
 import (
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
+
+	"github.com/artificial-universe-maker/go.uuid"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
 	"github.com/artificial-universe-maker/core/common"
@@ -31,9 +32,17 @@ var IntentResponses = RandomStringCollection{
 		"There's this one called \"%s\" that's fresh off the press.",
 	},
 	"introduce": []string{
-		"This is your buddy AUM.",
-		"This is AUM speaking.",
+		"This is AUM speaking. I hope you're having a good day.",
 		"AUM here, very nice to see you.",
+		"Hello, you're speaking to AUM. I hope you're having a great day.",
+	},
+	"instructions": []string{
+		"You can say \"List\" to hear a list of playable AUM applications. Otherwise, try asking 'What is AUM?'",
+	},
+	"aum info": []string{
+		`AUM is a platform to create, publish, and play voice apps like interactive stories.
+		AUM is free to use. Read more at our website, www.aum.ai!
+		To hear a list of apps you can say "List"`,
 	},
 }
 
@@ -42,13 +51,26 @@ type IntentHandler func(*actions.ApiAiRequest, *models.AumMutableRuntimeState)
 
 // List maps ApiAi intents to functions
 var List = map[string]IntentHandler{
-	"input.welcome":   Welcome,
-	"game.initialize": InitializeGame,
+	"Default Welcome Intent": Welcome,
+	"game.initialize":        InitializeGame,
+	"info":                   Info,
+	"list":                   ListApps,
 }
 
 // Welcome IntentHandler provides an introduction to AUM
 func Welcome(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["introduce"]))
+	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["instructions"]))
+}
+
+// Info IntentHandler provides additional information on AUM
+func Info(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["aum info"]))
+}
+
+// ListApps IntentHandler provides additional information on AUM
+func ListApps(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["aum info"]))
 }
 
 // Unknown IntentHandler handles all unknown intents
@@ -63,30 +85,20 @@ func InitializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 		log.Println("Error", err)
 		return
 	}
-	projectIDString := redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val()
-	projectID, err := strconv.ParseUint(projectIDString, 10, 64)
-	if err != nil {
-		log.Println("Error", err)
-		return
-	}
-	message.State.PubID = projectIDString
-	message.State.ZoneActors = map[string][]string{}
-	message.State.ZoneInitialized = map[string]bool{}
-	for _, zidString := range redis.SMembers(
-		fmt.Sprintf("%v:%v", models.KeynavProjectMetadataStatic(uint64(projectID)), "all_zones")).Val() {
-		zid, err := strconv.ParseUint(zidString, 10, 64)
-		if err != nil {
-			log.Println("Error", err)
-			return
-		}
-		message.State.ZoneActors[zidString] =
-			redis.SMembers(models.KeynavCompiledActorsWithinZone(projectID, zid)).Val()
-		message.State.ZoneInitialized[zidString] = false
+	projectID := uuid.FromStringOrNil(redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val())
+	message.State.PubID = projectID
+	message.State.ZoneActors = map[uuid.UUID][]string{}
+	message.State.ZoneInitialized = map[uuid.UUID]bool{}
+	for _, zoneID := range redis.SMembers(
+		fmt.Sprintf("%v:%v", models.KeynavProjectMetadataStatic(projectID.String()), "all_zones")).Val() {
+		zUUID := uuid.FromStringOrNil(zoneID)
+		message.State.ZoneActors[zUUID] =
+			redis.SMembers(models.KeynavCompiledActorsWithinZone(projectID.String(), zoneID)).Val()
+		message.State.ZoneInitialized[zUUID] = false
 	}
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
-	zoneID := redis.HGet(models.KeynavProjectMetadataStatic(uint64(projectID)), "start_zone_id").Val()
-	zoneIDInt, _ := strconv.ParseUint(zoneID, 10, 64)
-	setZone := models.ARASetZone(zoneIDInt)
+	zoneID := redis.HGet(models.KeynavProjectMetadataStatic(projectID.String()), "start_zone_id").Val()
+	setZone := models.ARASetZone(uuid.FromStringOrNil(zoneID))
 	setZone.Execute(message)
 
 }

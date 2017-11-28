@@ -7,20 +7,18 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/artificial-universe-maker/core/db"
+	"github.com/artificial-universe-maker/go.uuid"
+	jwt "github.com/dgrijalva/jwt-go"
 
 	"github.com/artificial-universe-maker/core"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
 	"github.com/artificial-universe-maker/brahman/intent_handlers"
 	"github.com/artificial-universe-maker/core/models"
-	"github.com/artificial-universe-maker/core/providers"
 	"github.com/artificial-universe-maker/go-ssml"
-	jwt "github.com/dgrijalva/jwt-go"
 )
 
 func main() {
@@ -97,15 +95,15 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		stateMap := claims["state"].(map[string]interface{})
 
 		runtimeState.State = models.MutableRuntimeState{
-			Zone:  stateMap["Zone"].(string),
-			PubID: stateMap["PubID"].(string),
+			Zone:  uuid.FromStringOrNil(stateMap["Zone"].(string)),
+			PubID: uuid.FromStringOrNil(stateMap["PubID"].(string)),
 		}
-		runtimeState.State.ZoneActors = map[string][]string{}
+		runtimeState.State.ZoneActors = map[uuid.UUID][]string{}
 		if stateMap["ZoneActors"] != nil {
 			for zone, actors := range stateMap["ZoneActors"].(map[string]interface{}) {
-				runtimeState.State.ZoneActors[zone] = []string{}
+				runtimeState.State.ZoneActors[uuid.FromStringOrNil(zone)] = []string{}
 				for _, actor := range actors.([]interface{}) {
-					runtimeState.State.ZoneActors[zone] = append(runtimeState.State.ZoneActors[zone], actor.(string))
+					runtimeState.State.ZoneActors[uuid.FromStringOrNil(zone)] = append(runtimeState.State.ZoneActors[uuid.FromStringOrNil(zone)], actor.(string))
 				}
 			}
 		}
@@ -119,17 +117,23 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 		// TODO: Generalize this and create consistency between brahman/intent_handlers
 		if stateMap["ZoneInitialized"] != nil {
-			runtimeState.State.ZoneInitialized = map[string]bool{}
+			runtimeState.State.ZoneInitialized = map[uuid.UUID]bool{}
 			for key, item := range stateMap["ZoneInitialized"].(map[string]interface{}) {
-				runtimeState.State.ZoneInitialized[key] = item.(bool)
+				runtimeState.State.ZoneInitialized[uuid.FromStringOrNil(key)] = item.(bool)
 			}
 		}
 	}
 
+	var newToken *actions.ApiAiContext
+
 	if hasGameToken {
-		ingameHandler(input, runtimeState)
+		intentHandlers.IngameHandler(input, runtimeState)
+		newToken = generateStateToken(runtimeState)
 	} else if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
 		handler(input, runtimeState)
+		if input.Result.Metadata.IntentName == "game.initialize" {
+			newToken = generateStateToken(runtimeState)
+		}
 	} else {
 		intentHandlers.Unknown(input, runtimeState)
 	}
@@ -139,6 +143,14 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		Speech:      runtimeState.OutputSSML.String(),
 	}
 
+	if newToken != nil {
+		response.ContextOut = &[]actions.ApiAiContext{*newToken}
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+func generateStateToken(runtimeState *models.AumMutableRuntimeState) *actions.ApiAiContext {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"state": runtimeState.State,
 	})
@@ -146,120 +158,9 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_KEY")))
 	if err != nil {
 		log.Fatal("Error", err)
-		return
+		return nil
 	}
 
 	tokenOut := actions.ApiAiContext{Name: fmt.Sprintf("aum_jwt_%v", time.Now().UnixNano()), Parameters: map[string]string{"token": tokenString}, Lifespan: 1}
-	response.ContextOut = &[]actions.ApiAiContext{tokenOut}
-
-	json.NewEncoder(w).Encode(response)
-}
-
-func ingameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
-	redis, err := providers.ConnectRedis()
-	if err != nil {
-		log.Fatal("Error connecting to redis", err)
-		return
-	}
-	projectID, err := strconv.ParseUint(message.State.PubID, 10, 64)
-	if err != nil {
-		log.Fatal("Error parsing projectID", err)
-		return
-	}
-	err = db.InitializeDB()
-	if err != nil {
-		log.Fatal("Error parsing projectID", err)
-		return
-	}
-	var dialogID string
-	fmt.Printf("%+v", message.State)
-	eventIDChan := make(chan uint64)
-	go func() {
-		var newID uint64
-		err = db.Instance.QueryRow(`INSERT INTO event_user_action ("UserID", "PubID", "RawInput") VALUES ($1, $2, $3) RETURNING "ID"`, 1, projectID, q.Result.ResolvedQuery).Scan(&newID)
-		if err != nil {
-			// TODO: Log this error somewhere
-			return
-		}
-		eventIDChan <- newID
-	}()
-	if message.State.CurrentDialog != nil {
-		currentDialogKey := *message.State.CurrentDialog
-		split := strings.Split(currentDialogKey, ":")
-		currentDialogID, err := strconv.ParseUint(split[len(split)-1], 10, 64)
-		if err != nil {
-			log.Fatal("Error parsing current dialog ID", err)
-			return
-		}
-		for _, actorIDString := range message.State.ZoneActors[message.State.Zone] {
-			actorID, err := strconv.ParseUint(actorIDString, 10, 64)
-			if err != nil {
-				log.Fatal("Error parsing actorID", err)
-				return
-			}
-			v := redis.HGet(models.KeynavCompiledDialogNodeWithinActor(projectID, actorID, currentDialogID), strings.ToUpper(q.Result.ResolvedQuery))
-			if v.Err() == nil {
-				dialogID = v.Val()
-				break
-			}
-		}
-	} else {
-		for _, actorIDString := range message.State.ZoneActors[message.State.Zone] {
-			actorID, err := strconv.ParseUint(actorIDString, 10, 64)
-			if err != nil {
-				log.Fatal("Error parsing actorID", err)
-				return
-			}
-			v := redis.HGet(models.KeynavCompiledDialogRootWithinActor(projectID, actorID), strings.ToUpper(q.Result.ResolvedQuery))
-			if v.Err() == nil {
-				dialogID = v.Val()
-				break
-			}
-		}
-	}
-
-	if dialogID == "" {
-		intentHandlers.Unknown(q, message)
-		return
-	}
-
-	dialogBinary, err := redis.Get(dialogID).Bytes()
-	if err != nil {
-		log.Fatal("Error fetching logic binary", dialogID, err)
-		return
-	}
-	stateComms := make(chan models.AumMutableRuntimeState, 1)
-	defer close(stateComms)
-	dialogEnd := dialogBinary[0] == 0
-	dialogBinary = dialogBinary[1:]
-	if dialogEnd {
-		message.State.CurrentDialog = nil
-	} else {
-		message.State.CurrentDialog = &dialogID
-	}
-	stateChange := false
-	result := models.LogicLazyEval(stateComms, dialogBinary)
-	for res := range result {
-		if res.Error != nil {
-			log.Fatal("Error with logic evaluation", res.Error)
-			return
-		}
-		bundleBinary, err := redis.Get(res.Value).Bytes()
-		if err != nil {
-			log.Fatal("Error fetching action bundle binary", err)
-			return
-		}
-		err = models.ActionBundleEval(message, bundleBinary)
-		if err != nil {
-			log.Fatal("Error processing action bundle binary", err)
-			return
-		}
-		stateComms <- *message
-	}
-	stateChange = true
-	if stateChange {
-		newID := <-eventIDChan
-		stateObject, _ := message.State.Value()
-		go db.Instance.QueryRow(`INSERT INTO event_state_change ("EventUserActionID", "StateObject") VALUES ($1, $2)`, newID, stateObject)
-	}
+	return &tokenOut
 }
