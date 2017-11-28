@@ -1,7 +1,6 @@
 package intentHandlers
 
 import (
-	"fmt"
 	"log"
 	"strings"
 
@@ -26,7 +25,6 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		return
 	}
 	var dialogID string
-	fmt.Printf("%+v", message.State)
 	eventIDChan := make(chan uuid.UUID)
 	go func() {
 		var newID uuid.UUID
@@ -95,8 +93,8 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 			return
 		}
 		stateComms <- *message
+		stateChange = true
 	}
-	stateChange = true
 	if stateChange {
 		newID := <-eventIDChan
 		stateObject, _ := message.State.Value()
