@@ -81,11 +81,16 @@ func Unknown(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 // InitializeGame IntentHandler will begin a specified game if it exists
 func InitializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
 	redis, err := providers.ConnectRedis()
+	defer redis.Close()
 	if err != nil {
 		log.Println("Error", err)
 		return
 	}
 	projectID := uuid.FromStringOrNil(redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val())
+	if projectID == uuid.Nil {
+		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet!")
+		return
+	}
 	message.State.PubID = projectID
 	message.State.ZoneActors = map[uuid.UUID][]string{}
 	message.State.ZoneInitialized = map[uuid.UUID]bool{}

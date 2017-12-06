@@ -78,7 +78,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 	input := &actions.ApiAiRequest{}
 	err := json.NewDecoder(r.Body).Decode(input)
 	if err != nil {
-		log.Fatal("Error", err)
+		log.Print("Error:", err)
 		return
 	}
 
@@ -89,7 +89,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		claims, err := utilities.ParseJTWClaims(ctx.Parameters["token"])
 		if err != nil {
-			log.Fatal("Error", err)
+			log.Print("Error:", err)
 			return
 		}
 		stateMap := claims["state"].(map[string]interface{})
@@ -139,6 +139,16 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 				DisplayText: ctx.Parameters["DisplayText"],
 				Speech:      ctx.Parameters["Speech"],
 			}
+			response.ContextOut = &[]actions.ApiAiContext{
+				actions.ApiAiContext{
+					Name: "previous_output",
+					Parameters: map[string]string{
+						"DisplayText": ctx.Parameters["DisplayText"],
+						"Speech":      ctx.Parameters["Speech"],
+					},
+					Lifespan: 1,
+				},
+			}
 		}
 		if foundRepeat {
 			newToken = generateStateToken(runtimeState)
@@ -156,7 +166,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		newToken = generateStateToken(runtimeState)
 	} else if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
 		handler(input, runtimeState)
-		if input.Result.Metadata.IntentName == "game.initialize" {
+		if input.Result.Metadata.IntentName == "game.initialize" && runtimeState.State.PubID != uuid.Nil {
 			newToken = generateStateToken(runtimeState)
 		}
 	} else {
@@ -175,6 +185,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 				"DisplayText": runtimeState.OutputSSML.String(),
 				"Speech":      runtimeState.OutputSSML.String(),
 			},
+			Lifespan: 1,
 		},
 	}
 

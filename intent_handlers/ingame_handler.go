@@ -28,7 +28,7 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 	eventIDChan := make(chan uuid.UUID)
 	go func() {
 		var newID uuid.UUID
-		err = db.Instance.QueryRow(`INSERT INTO event_user_action ("UserID", "PubID", "RawInput") VALUES ($1, $2, $3) RETURNING "ID"`, 1, projectID, q.Result.ResolvedQuery).Scan(&newID)
+		err = db.Instance.QueryRow(`INSERT INTO event_user_action ("UserID", "PubID", "RawInput") VALUES ($1, $2, $3) RETURNING "ID"`, uuid.Nil, projectID, q.Result.ResolvedQuery).Scan(&newID)
 		if err != nil {
 			// TODO: Log this error somewhere
 			return
