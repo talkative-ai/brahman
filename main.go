@@ -126,6 +126,31 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	var newToken *actions.ApiAiContext
 
+	// Handle the "repeat" intent
+	if input.Result.Metadata.IntentName == "repeat" {
+		var response actions.ServiceResponse
+		foundRepeat := false
+		for _, ctx := range input.Result.Contexts {
+			if ctx.Name != "previous_output" {
+				continue
+			}
+			foundRepeat = true
+			response = actions.ServiceResponse{
+				DisplayText: ctx.Parameters["DisplayText"],
+				Speech:      ctx.Parameters["Speech"],
+			}
+		}
+		if foundRepeat {
+			newToken = generateStateToken(runtimeState)
+			if newToken != nil {
+				v := append(*response.ContextOut, *newToken)
+				response.ContextOut = &v
+			}
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+	}
+
 	if hasGameToken {
 		intentHandlers.IngameHandler(input, runtimeState)
 		newToken = generateStateToken(runtimeState)
@@ -143,8 +168,19 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		Speech:      runtimeState.OutputSSML.String(),
 	}
 
+	response.ContextOut = &[]actions.ApiAiContext{
+		actions.ApiAiContext{
+			Name: "previous_output",
+			Parameters: map[string]string{
+				"DisplayText": runtimeState.OutputSSML.String(),
+				"Speech":      runtimeState.OutputSSML.String(),
+			},
+		},
+	}
+
 	if newToken != nil {
-		response.ContextOut = &[]actions.ApiAiContext{*newToken}
+		v := append(*response.ContextOut, *newToken)
+		response.ContextOut = &v
 	}
 
 	json.NewEncoder(w).Encode(response)
