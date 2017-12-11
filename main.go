@@ -150,11 +150,99 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 				},
 			}
 		}
-		if foundRepeat {
+		if hasGameToken {
 			newToken = generateStateToken(runtimeState)
 			if newToken != nil {
 				v := append(*response.ContextOut, *newToken)
 				response.ContextOut = &v
+			}
+		}
+		if foundRepeat {
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+		// handle the "Help" intent"
+	} else if input.Result.Metadata.IntentName == "help" {
+		runtimeState.OutputSSML.Text(`
+			You can say "repeat" to hear the last thing over again,
+			"stop app" to leave the current app,
+			"restart app" to start from the beginning erasing all of your progress,
+			and "help" to hear this help menu.`)
+		response := actions.ServiceResponse{
+			DisplayText: runtimeState.OutputSSML.String(),
+			Speech:      runtimeState.OutputSSML.String(),
+		}
+		for _, ctx := range input.Result.Contexts {
+			if ctx.Name != "previous_output" {
+				continue
+			}
+			response.ContextOut = &[]actions.ApiAiContext{
+				actions.ApiAiContext{
+					Name: "previous_output",
+					Parameters: map[string]string{
+						"DisplayText": ctx.Parameters["DisplayText"],
+						"Speech":      ctx.Parameters["Speech"],
+					},
+					Lifespan: 1,
+				},
+			}
+		}
+		if hasGameToken {
+			newToken = generateStateToken(runtimeState)
+			if newToken != nil {
+				v := append(*response.ContextOut, *newToken)
+				response.ContextOut = &v
+			}
+		}
+		json.NewEncoder(w).Encode(response)
+		return
+	} else if input.Result.Metadata.IntentName == "app.restart" {
+		runtimeState.OutputSSML.Text(`
+			Okay, the app has been stopped. To play another app, say "play" and then the name of it.
+			To hear a list of apps, say "list apps"`)
+		response := actions.ServiceResponse{
+			DisplayText: runtimeState.OutputSSML.String(),
+			Speech:      runtimeState.OutputSSML.String(),
+		}
+		json.NewEncoder(w).Encode(response)
+		return
+	} else if input.Result.Metadata.IntentName == "app.restart" ||
+		input.Result.Metadata.IntentName == "confirm" ||
+		input.Result.Metadata.IntentName == "cancel" {
+		requestedRestart := false
+		for _, ctx := range input.Result.Contexts {
+			if ctx.Name != "requested_restart" {
+				continue
+			}
+			requestedRestart = true
+		}
+		if requestedRestart {
+			if input.Result.Metadata.IntentName == "cancel" {
+				// Forget it
+			} else {
+				// Restart game data here
+				// Make abstract so that ingame handler can also use this function
+				return
+			}
+		} else if input.Result.Metadata.IntentName == "app.restart" {
+			runtimeState.OutputSSML.Text(`Are you sure you want to restart the app? All of your progress will be lost forever.`)
+			response := actions.ServiceResponse{
+				DisplayText: runtimeState.OutputSSML.String(),
+				Speech:      runtimeState.OutputSSML.String(),
+			}
+			response.ContextOut = &[]actions.ApiAiContext{
+				actions.ApiAiContext{
+					Name:       "requested_restart",
+					Parameters: map[string]string{},
+					Lifespan:   1,
+				},
+			}
+			if hasGameToken {
+				newToken = generateStateToken(runtimeState)
+				if newToken != nil {
+					v := append(*response.ContextOut, *newToken)
+					response.ContextOut = &v
+				}
 			}
 			json.NewEncoder(w).Encode(response)
 			return
@@ -166,7 +254,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		newToken = generateStateToken(runtimeState)
 	} else if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
 		handler(input, runtimeState)
-		if input.Result.Metadata.IntentName == "game.initialize" && runtimeState.State.PubID != uuid.Nil {
+		if input.Result.Metadata.IntentName == "app.initialize" && runtimeState.State.PubID != uuid.Nil {
 			newToken = generateStateToken(runtimeState)
 		}
 	} else {

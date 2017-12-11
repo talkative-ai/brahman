@@ -95,6 +95,8 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		stateComms <- *message
 		stateChange = true
 	}
+	// TODO: Reenable
+	stateChange = false
 	if stateChange {
 		newID := <-eventIDChan
 		stateObject, _ := message.State.Value()

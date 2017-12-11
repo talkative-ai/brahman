@@ -52,7 +52,7 @@ type IntentHandler func(*actions.ApiAiRequest, *models.AumMutableRuntimeState)
 // List maps ApiAi intents to functions
 var List = map[string]IntentHandler{
 	"Default Welcome Intent": Welcome,
-	"game.initialize":        InitializeGame,
+	"app.initialize":         InitializeGame,
 	"info":                   Info,
 	"list":                   ListApps,
 }
