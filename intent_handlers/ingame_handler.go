@@ -35,20 +35,29 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		}
 		eventIDChan <- newID
 	}()
+
 	if message.State.CurrentDialog != nil {
+		// Attempt to fetch a dialog relative to the current dialog.
+		// Otherwise known as dialog node children
+		// This is where conversational context works
 		currentDialogKey := *message.State.CurrentDialog
 		split := strings.Split(currentDialogKey, ":")
 		currentDialogID := split[len(split)-1]
 		for _, actorID := range message.State.ZoneActors[message.State.Zone] {
-			v := redis.HGet(models.KeynavCompiledDialogNodeWithinActor(projectID.String(), actorID, currentDialogID), strings.ToUpper(q.Result.ResolvedQuery))
+			input := models.AumDialogInput(q.Result.ResolvedQuery)
+			v := redis.HGet(models.KeynavCompiledDialogNodeWithinActor(projectID.String(), actorID, currentDialogID), input.Prepared())
 			if v.Err() == nil {
 				dialogID = v.Val()
 				break
 			}
 		}
 	} else {
+		// If there is no current dialog, then we scan all "root dialogs"
+		// for the actors within the Zone
+		// This is where conversations begin
 		for _, actorID := range message.State.ZoneActors[message.State.Zone] {
-			v := redis.HGet(models.KeynavCompiledDialogRootWithinActor(projectID.String(), actorID), strings.ToUpper(q.Result.ResolvedQuery))
+			input := models.AumDialogInput(q.Result.ResolvedQuery)
+			v := redis.HGet(models.KeynavCompiledDialogRootWithinActor(projectID.String(), actorID), input.Prepared())
 			if v.Err() == nil {
 				dialogID = v.Val()
 				break
@@ -56,6 +65,35 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		}
 	}
 
+	// There were no dialogs at all with the given input
+	// So we check to see if there's a "catch-all" unknown dialog handler
+	if dialogID == "" {
+		if message.State.CurrentDialog != nil {
+			currentDialogKey := *message.State.CurrentDialog
+			split := strings.Split(currentDialogKey, ":")
+			currentDialogID := split[len(split)-1]
+			for _, actorID := range message.State.ZoneActors[message.State.Zone] {
+				v := redis.HGet(models.KeynavCompiledDialogNodeWithinActor(projectID.String(), actorID, currentDialogID), models.AumDialogSpecialInputUnknown)
+				if v.Err() == nil {
+					dialogID = v.Val()
+					break
+				}
+			}
+		} else {
+			for _, actorID := range message.State.ZoneActors[message.State.Zone] {
+				v := redis.HGet(models.KeynavCompiledDialogRootWithinActor(projectID.String(), actorID), models.AumDialogSpecialInputUnknown)
+				if v.Err() == nil {
+					dialogID = v.Val()
+					break
+				}
+			}
+		}
+	}
+
+	// Still nothing, so abort with a default unknown response
+	// TODO: We should allow modifying the default unknown response.
+	// This probably won't happen in the future but eventually will need to consider.
+	// e.g. attach default unknown response to the zone? actor? etc.
 	if dialogID == "" {
 		Unknown(q, message)
 		return
