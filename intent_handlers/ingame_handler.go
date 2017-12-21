@@ -1,7 +1,6 @@
 package intentHandlers
 
 import (
-	"log"
 	"strings"
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
@@ -11,18 +10,16 @@ import (
 	uuid "github.com/artificial-universe-maker/go.uuid"
 )
 
-func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	redis, err := providers.ConnectRedis()
 	if err != nil {
-		log.Fatal("Error connecting to redis", err)
-		return
+		return nil, err
 	}
 	projectID := message.State.PubID
 
 	err = db.InitializeDB()
 	if err != nil {
-		log.Fatal("Error parsing projectID", err)
-		return
+		return nil, err
 	}
 	var dialogID string
 	eventIDChan := make(chan uuid.UUID)
@@ -31,7 +28,6 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		err = db.Instance.QueryRow(`INSERT INTO event_user_action ("UserID", "PubID", "RawInput") VALUES ($1, $2, $3) RETURNING "ID"`, uuid.Nil, projectID, q.Result.ResolvedQuery).Scan(&newID)
 		if err != nil {
 			// TODO: Log this error somewhere
-			return
 		}
 		eventIDChan <- newID
 	}()
@@ -95,14 +91,12 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 	// This probably won't happen in the future but eventually will need to consider.
 	// e.g. attach default unknown response to the zone? actor? etc.
 	if dialogID == "" {
-		Unknown(q, message)
-		return
+		return nil, ErrIntentNoMatch
 	}
 
 	dialogBinary, err := redis.Get(dialogID).Bytes()
 	if err != nil {
-		log.Fatal("Error fetching logic binary", dialogID, err)
-		return
+		return nil, err
 	}
 	stateComms := make(chan models.AumMutableRuntimeState, 1)
 	defer close(stateComms)
@@ -117,18 +111,15 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 	result := models.LogicLazyEval(stateComms, dialogBinary)
 	for res := range result {
 		if res.Error != nil {
-			log.Fatal("Error with logic evaluation", res.Error)
-			return
+			return nil, err
 		}
 		bundleBinary, err := redis.Get(res.Value).Bytes()
 		if err != nil {
-			log.Fatal("Error fetching action bundle binary", err)
-			return
+			return nil, err
 		}
 		err = models.ActionBundleEval(message, bundleBinary)
 		if err != nil {
-			log.Fatal("Error processing action bundle binary", err)
-			return
+			return nil, err
 		}
 		stateComms <- *message
 		stateChange = true
@@ -140,4 +131,6 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSta
 		stateObject, _ := message.State.Value()
 		go db.Instance.QueryRow(`INSERT INTO event_state_change ("EventUserActionID", "StateObject") VALUES ($1, $2)`, newID, stateObject)
 	}
+
+	return nil, nil
 }

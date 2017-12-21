@@ -125,140 +125,46 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var newToken *actions.ApiAiContext
+	contextOut := []actions.ApiAiContext{}
 
-	// Handle the "repeat" intent
-	if input.Result.Metadata.IntentName == "repeat" {
-		var response actions.ServiceResponse
-		foundRepeat := false
-		for _, ctx := range input.Result.Contexts {
-			if ctx.Name != "previous_output" {
-				continue
-			}
-			foundRepeat = true
-			response = actions.ServiceResponse{
-				DisplayText: ctx.Parameters["DisplayText"],
-				Speech:      ctx.Parameters["Speech"],
-			}
-			response.ContextOut = &[]actions.ApiAiContext{
-				actions.ApiAiContext{
-					Name: "previous_output",
-					Parameters: map[string]string{
-						"DisplayText": ctx.Parameters["DisplayText"],
-						"Speech":      ctx.Parameters["Speech"],
-					},
-					Lifespan: 1,
-				},
-			}
-		}
-		if hasGameToken {
-			newToken = generateStateToken(runtimeState)
-			if newToken != nil {
-				v := append(*response.ContextOut, *newToken)
-				response.ContextOut = &v
-			}
-		}
-		if foundRepeat {
-			json.NewEncoder(w).Encode(response)
-			return
-		}
-		// handle the "Help" intent"
-	} else if input.Result.Metadata.IntentName == "help" {
-		runtimeState.OutputSSML.Text(`
-			You can say "repeat" to hear the last thing over again,
-			"stop app" to leave the current app,
-			"restart app" to start from the beginning erasing all of your progress,
-			and "help" to hear this help menu.`)
-		response := actions.ServiceResponse{
-			DisplayText: runtimeState.OutputSSML.String(),
-			Speech:      runtimeState.OutputSSML.String(),
-		}
-		for _, ctx := range input.Result.Contexts {
-			if ctx.Name != "previous_output" {
-				continue
-			}
-			response.ContextOut = &[]actions.ApiAiContext{
-				actions.ApiAiContext{
-					Name: "previous_output",
-					Parameters: map[string]string{
-						"DisplayText": ctx.Parameters["DisplayText"],
-						"Speech":      ctx.Parameters["Speech"],
-					},
-					Lifespan: 1,
-				},
-			}
-		}
-		if hasGameToken {
-			newToken = generateStateToken(runtimeState)
-			if newToken != nil {
-				v := append(*response.ContextOut, *newToken)
-				response.ContextOut = &v
-			}
-		}
-		json.NewEncoder(w).Encode(response)
-		return
-	} else if input.Result.Metadata.IntentName == "app.restart" {
-		runtimeState.OutputSSML.Text(`
-			Okay, the app has been stopped. To play another app, say "play" and then the name of it.
-			To hear a list of apps, say "list apps"`)
-		response := actions.ServiceResponse{
-			DisplayText: runtimeState.OutputSSML.String(),
-			Speech:      runtimeState.OutputSSML.String(),
-		}
-		json.NewEncoder(w).Encode(response)
-		return
-	} else if input.Result.Metadata.IntentName == "app.restart" ||
-		input.Result.Metadata.IntentName == "confirm" ||
-		input.Result.Metadata.IntentName == "cancel" {
-		requestedRestart := false
-		for _, ctx := range input.Result.Contexts {
-			if ctx.Name != "requested_restart" {
-				continue
-			}
-			requestedRestart = true
-		}
-		if requestedRestart {
-			if input.Result.Metadata.IntentName == "cancel" {
-				// Forget it
-			} else {
-				// Restart game data here
-				// Make abstract so that ingame handler can also use this function
-				return
-			}
-		} else if input.Result.Metadata.IntentName == "app.restart" {
-			runtimeState.OutputSSML.Text(`Are you sure you want to restart the app? All of your progress will be lost forever.`)
-			response := actions.ServiceResponse{
-				DisplayText: runtimeState.OutputSSML.String(),
-				Speech:      runtimeState.OutputSSML.String(),
-			}
-			response.ContextOut = &[]actions.ApiAiContext{
-				actions.ApiAiContext{
-					Name:       "requested_restart",
-					Parameters: map[string]string{},
-					Lifespan:   1,
-				},
-			}
-			if hasGameToken {
-				newToken = generateStateToken(runtimeState)
-				if newToken != nil {
-					v := append(*response.ContextOut, *newToken)
-					response.ContextOut = &v
-				}
-			}
-			json.NewEncoder(w).Encode(response)
-			return
+	if handler, ok := intentHandlers.SpecialHandlers[input.Result.Metadata.IntentName]; ok {
+		var ctx *[]actions.ApiAiContext
+		ctx, err = handler(input, runtimeState)
+		if ctx != nil {
+			contextOut = append(contextOut, *ctx...)
 		}
 	}
 
-	if hasGameToken {
-		intentHandlers.IngameHandler(input, runtimeState)
-		newToken = generateStateToken(runtimeState)
-	} else if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
-		handler(input, runtimeState)
-		if input.Result.Metadata.IntentName == "app.initialize" && runtimeState.State.PubID != uuid.Nil {
-			newToken = generateStateToken(runtimeState)
+	if err != nil {
+		if err != intentHandlers.ErrIntentNoMatch {
+			// Handle error here
+		} else {
+			if hasGameToken {
+				var ctx *[]actions.ApiAiContext
+				ctx, err = intentHandlers.IngameHandler(input, runtimeState)
+				if ctx != nil {
+					contextOut = append(contextOut, *ctx...)
+				}
+				if err != nil {
+					// Handle error here
+				}
+			} else if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
+				var ctx *[]actions.ApiAiContext
+				ctx, err = handler(input, runtimeState)
+				if ctx != nil {
+					contextOut = append(contextOut, *ctx...)
+				}
+				if err != nil {
+					// Handle error here
+				}
+			} else {
+				intentHandlers.Unknown(input, runtimeState)
+			}
 		}
-	} else {
-		intentHandlers.Unknown(input, runtimeState)
+	}
+
+	if hasGameToken || (input.Result.Metadata.IntentName == "app.initialize" && runtimeState.State.PubID != uuid.Nil) {
+		contextOut = append(contextOut, *newToken)
 	}
 
 	response := actions.ServiceResponse{
@@ -266,21 +172,26 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		Speech:      runtimeState.OutputSSML.String(),
 	}
 
-	response.ContextOut = &[]actions.ApiAiContext{
-		actions.ApiAiContext{
-			Name: "previous_output",
-			Parameters: map[string]string{
-				"DisplayText": runtimeState.OutputSSML.String(),
-				"Speech":      runtimeState.OutputSSML.String(),
-			},
-			Lifespan: 1,
-		},
+	hasPreviousOutput := false
+	for _, ctx := range input.Result.Contexts {
+		if ctx.Name != "previous_output" {
+			continue
+		}
+		hasPreviousOutput = true
+	}
+	if !hasPreviousOutput {
+		contextOut = append(contextOut,
+			actions.ApiAiContext{
+				Name: "previous_output",
+				Parameters: map[string]string{
+					"DisplayText": runtimeState.OutputSSML.String(),
+					"Speech":      runtimeState.OutputSSML.String(),
+				},
+				Lifespan: 1,
+			})
 	}
 
-	if newToken != nil {
-		v := append(*response.ContextOut, *newToken)
-		response.ContextOut = &v
-	}
+	response.ContextOut = &contextOut
 
 	json.NewEncoder(w).Encode(response)
 }

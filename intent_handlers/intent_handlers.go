@@ -2,7 +2,6 @@ package intentHandlers
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/artificial-universe-maker/go.uuid"
@@ -46,8 +45,12 @@ var IntentResponses = RandomStringCollection{
 	},
 }
 
+// ErrIntentNoMatch occurs when an intent handler does not match the current context
+// For example, a user saying "cancel" for no reason
+var ErrIntentNoMatch error = fmt.Errorf("aum:no_match")
+
 // IntentHandler is a function signature for handling api.ai requests
-type IntentHandler func(*actions.ApiAiRequest, *models.AumMutableRuntimeState)
+type IntentHandler func(*actions.ApiAiRequest, *models.AumMutableRuntimeState) (contextOut *[]actions.ApiAiContext, err error)
 
 // List maps ApiAi intents to functions
 var List = map[string]IntentHandler{
@@ -58,52 +61,44 @@ var List = map[string]IntentHandler{
 }
 
 // Welcome IntentHandler provides an introduction to AUM
-func Welcome(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+func Welcome(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["introduce"]))
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["instructions"]))
+	return nil, nil
 }
 
 // Info IntentHandler provides additional information on AUM
-func Info(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+func Info(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["aum info"]))
+	return nil, nil
 }
 
 // ListApps IntentHandler provides additional information on AUM
-func ListApps(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+func ListApps(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["aum info"]))
+	return nil, nil
 }
 
 // Unknown IntentHandler handles all unknown intents
-func Unknown(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+func Unknown(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["unknown"]))
+	return nil, nil
 }
 
 // InitializeGame IntentHandler will begin a specified game if it exists
-func InitializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) {
+func InitializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	redis, err := providers.ConnectRedis()
 	defer redis.Close()
 	if err != nil {
-		log.Println("Error", err)
-		return
+		return nil, err
 	}
 	projectID := uuid.FromStringOrNil(redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val())
 	if projectID == uuid.Nil {
 		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet!")
-		return
-	}
-	message.State.PubID = projectID
-	message.State.ZoneActors = map[uuid.UUID][]string{}
-	message.State.ZoneInitialized = map[uuid.UUID]bool{}
-	for _, zoneID := range redis.SMembers(
-		fmt.Sprintf("%v:%v", models.KeynavProjectMetadataStatic(projectID.String()), "all_zones")).Val() {
-		zUUID := uuid.FromStringOrNil(zoneID)
-		message.State.ZoneActors[zUUID] =
-			redis.SMembers(models.KeynavCompiledActorsWithinZone(projectID.String(), zoneID)).Val()
-		message.State.ZoneInitialized[zUUID] = false
+		return nil, nil
 	}
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
-	zoneID := redis.HGet(models.KeynavProjectMetadataStatic(projectID.String()), "start_zone_id").Val()
-	setZone := models.ARASetZone(uuid.FromStringOrNil(zoneID))
-	setZone.Execute(message)
-
+	setup := models.ARAResetApp(projectID)
+	setup.Execute(message)
+	return nil, nil
 }
