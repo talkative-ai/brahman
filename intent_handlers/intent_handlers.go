@@ -58,6 +58,12 @@ var List = map[string]IntentHandler{
 	"app.initialize":         InitializeGame,
 	"info":                   Info,
 	"list":                   ListApps,
+	"app.stop":               AppStopHandler,
+	"app.restart":            AppRestartHandler,
+	"confirm":                ConfirmHandler,
+	"cancel":                 CancelHandler,
+	"help":                   HelpHandler,
+	"repeat":                 RepeatHandler,
 }
 
 // Welcome IntentHandler provides an introduction to AUM
@@ -102,4 +108,111 @@ func InitializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 	var setup models.ARAResetApp
 	setup.Execute(message)
 	return nil, nil
+}
+
+func AppStopHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	runtimeState.OutputSSML.Text(`
+		Okay, stopping the app now. You're back to the main menu.
+		If you're not sure what to do, say "help"`)
+	return nil, nil
+}
+
+func AppRestartHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	requestedRestart := false
+	for _, ctx := range input.Result.Contexts {
+		if ctx.Name != "requested_restart" {
+			continue
+		}
+		requestedRestart = true
+	}
+	if requestedRestart {
+		runtimeState.OutputSSML.Text(`Okay, restarting now...`)
+		var setup models.ARAResetApp
+		setup.Execute(runtimeState)
+		return nil, nil
+	}
+	runtimeState.OutputSSML.Text(`Are you sure you want to restart the app? All of your progress will be lost forever.`)
+	contextOut := []actions.ApiAiContext{
+		actions.ApiAiContext{
+			Name:       "requested_restart",
+			Parameters: map[string]string{},
+			Lifespan:   1,
+		},
+	}
+	return &contextOut, nil
+}
+
+func ConfirmHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	for _, ctx := range input.Result.Contexts {
+		if ctx.Name == "requested_restart" {
+			runtimeState.OutputSSML.Text(`Okay, restarting now...`)
+			var setup models.ARAResetApp
+			setup.Execute(runtimeState)
+			return nil, nil
+		}
+	}
+	return nil, ErrIntentNoMatch
+}
+
+func CancelHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	for _, ctx := range input.Result.Contexts {
+		if ctx.Name == "requested_restart" {
+			runtimeState.OutputSSML.Text(`Okay, you've cancelled restarting.`)
+			return nil, nil
+		}
+	}
+	return nil, ErrIntentNoMatch
+}
+
+func HelpHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	if runtimeState.State.PubID == uuid.Nil {
+		runtimeState.OutputSSML.Text(`
+			You can say "list apps" to hear the apps in the multiverse,
+			"help" to hear this help menu,
+			and "quit" to leave.`)
+	} else {
+		runtimeState.OutputSSML.Text(`
+			You can say "repeat" to hear the last thing over again,
+			"stop app" to save your progress and leave the current app,
+			"restart app" to start from the beginning erasing all of your progress,
+			and "help" to hear this help menu.`)
+	}
+	for _, ctx := range input.Result.Contexts {
+		if ctx.Name != "previous_output" {
+			continue
+		}
+		contextOut := []actions.ApiAiContext{
+			actions.ApiAiContext{
+				Name: "previous_output",
+				Parameters: map[string]string{
+					"DisplayText": ctx.Parameters["DisplayText"],
+					"Speech":      ctx.Parameters["Speech"],
+				},
+				Lifespan: 1,
+			},
+		}
+		return &contextOut, nil
+	}
+	return nil, nil
+}
+
+func RepeatHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	for _, ctx := range input.Result.Contexts {
+		if ctx.Name != "previous_output" {
+			continue
+		}
+		runtimeState.OutputSSML.Text(ctx.Parameters["DisplayText"])
+		outputContext := []actions.ApiAiContext{
+			actions.ApiAiContext{
+				Name: "previous_output",
+				Parameters: map[string]string{
+					"DisplayText": ctx.Parameters["DisplayText"],
+					"Speech":      ctx.Parameters["Speech"],
+				},
+				Lifespan: 1,
+			},
+		}
+		return &outputContext, nil
+	}
+	return nil, ErrIntentNoMatch
 }
