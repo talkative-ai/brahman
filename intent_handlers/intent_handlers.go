@@ -98,11 +98,12 @@ func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeStat
 	}
 	var items []models.AumProject
 	_, err = db.DBMap.Select(&items, `
-		SELECT
+		SELECT DISTINCT ON (pp."ProjectID")
 			p."Title"
 		FROM published_workbench_projects pp
 		JOIN workbench_projects p
 		ON p."ID" = pp."ProjectID"
+		ORDER BY pp."ProjectID", pp."CreatedAt" DESC
 		LIMIT 5
 	`)
 
