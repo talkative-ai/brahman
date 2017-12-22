@@ -97,8 +97,9 @@ func InitializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeSt
 		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet!")
 		return nil, nil
 	}
+	message.State.PubID = projectID
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
-	setup := models.ARAResetApp(projectID)
+	var setup models.ARAResetApp
 	setup.Execute(message)
 	return nil, nil
 }

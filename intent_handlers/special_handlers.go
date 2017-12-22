@@ -49,8 +49,6 @@ func ConfirmHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutable
 		if ctx.Name == "requested_restart" {
 			runtimeState.OutputSSML.Text(`Okay, restarting now...`)
 			var setup models.ARAResetApp
-			// TODO:
-			// This may create a null pointer exception. Keep an eye out!
 			setup.Execute(runtimeState)
 			return nil, nil
 		}
