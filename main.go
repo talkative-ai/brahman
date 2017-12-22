@@ -124,7 +124,6 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var newToken *actions.ApiAiContext
 	contextOut := []actions.ApiAiContext{}
 
 	if handler, ok := intentHandlers.SpecialHandlers[input.Result.Metadata.IntentName]; ok {
@@ -135,36 +134,39 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err != nil {
-		if err != intentHandlers.ErrIntentNoMatch {
-			// Handle error here
-		} else {
-			if hasGameToken {
-				var ctx *[]actions.ApiAiContext
-				ctx, err = intentHandlers.IngameHandler(input, runtimeState)
-				if ctx != nil {
-					contextOut = append(contextOut, *ctx...)
-				}
-				if err != nil {
-					// Handle error here
-				}
-			} else if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
-				var ctx *[]actions.ApiAiContext
-				ctx, err = handler(input, runtimeState)
-				if ctx != nil {
-					contextOut = append(contextOut, *ctx...)
-				}
-				if err != nil {
-					// Handle error here
-				}
-			} else {
-				intentHandlers.Unknown(input, runtimeState)
+	if err != nil && err != intentHandlers.ErrIntentNoMatch {
+		fmt.Println("Error", err)
+		return
+	}
+
+	if err == nil || err == intentHandlers.ErrIntentNoMatch {
+		if hasGameToken {
+			var ctx *[]actions.ApiAiContext
+			ctx, err = intentHandlers.IngameHandler(input, runtimeState)
+			if ctx != nil {
+				contextOut = append(contextOut, *ctx...)
 			}
+			if err != nil && err != intentHandlers.ErrIntentNoMatch {
+				fmt.Println("Error", err)
+				return
+			}
+		} else if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
+			var ctx *[]actions.ApiAiContext
+			ctx, err = handler(input, runtimeState)
+			if ctx != nil {
+				contextOut = append(contextOut, *ctx...)
+			}
+			if err != nil && err != intentHandlers.ErrIntentNoMatch {
+				fmt.Println("Error", err)
+				return
+			}
+		} else {
+			intentHandlers.Unknown(input, runtimeState)
 		}
 	}
 
-	if hasGameToken || (input.Result.Metadata.IntentName == "app.initialize" && runtimeState.State.PubID != uuid.Nil) {
-		contextOut = append(contextOut, *newToken)
+	if hasGameToken || ((input.Result.Metadata.IntentName == "app.initialize" || input.Result.Metadata.IntentName == "app.restart") && runtimeState.State.PubID != uuid.Nil) {
+		contextOut = append(contextOut, *generateStateToken(runtimeState))
 	}
 
 	response := actions.ServiceResponse{
