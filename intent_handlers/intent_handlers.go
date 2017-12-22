@@ -8,6 +8,7 @@ import (
 
 	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
 	"github.com/artificial-universe-maker/core/common"
+	"github.com/artificial-universe-maker/core/db"
 	"github.com/artificial-universe-maker/core/models"
 	"github.com/artificial-universe-maker/core/providers"
 )
@@ -90,7 +91,29 @@ func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeStat
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
-	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["aum info"]))
+
+	err := db.InitializeDB()
+	if err != nil {
+		return nil, err
+	}
+	var items []models.AumProject
+	_, err = db.DBMap.Select(&items, `
+		SELECT
+			p."Title"
+		FROM published_workbench_projects pp
+		JOIN workbench_projects p
+		ON p."ID" = pp."ProjectID"
+		LIMIT 5
+	`)
+
+	message.OutputSSML.Text(`Some available apps to play are: `)
+	for i := 0; i < len(items); i++ {
+		if i > 0 {
+			message.OutputSSML.Text("Another app is")
+		}
+		message.OutputSSML.Text(items[i].Title)
+	}
+	message.OutputSSML.Text(`. To play an app, say "Let's play" and then the name of the app.`)
 	return nil, nil
 }
 

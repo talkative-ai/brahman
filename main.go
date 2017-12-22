@@ -126,34 +126,38 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	contextOut := []actions.ApiAiContext{}
 
-	handledIntent := false
+	intentHandled := false
 	if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
-		handledIntent = true
 		var ctx *[]actions.ApiAiContext
 		ctx, err = handler(input, runtimeState)
-		if ctx != nil {
-			contextOut = append(contextOut, *ctx...)
-		}
-	}
-
-	if err != nil && err != intentHandlers.ErrIntentNoMatch {
-		fmt.Println("Error", err)
-		return
-	}
-
-	if hasGameToken && (err == intentHandlers.ErrIntentNoMatch || !handledIntent) {
-		var ctx *[]actions.ApiAiContext
-		ctx, err = intentHandlers.IngameHandler(input, runtimeState)
-		if ctx != nil {
-			contextOut = append(contextOut, *ctx...)
+		if err == nil {
+			intentHandled = true
 		}
 		if err != nil && err != intentHandlers.ErrIntentNoMatch {
 			fmt.Println("Error", err)
 			return
 		}
+		if ctx != nil {
+			contextOut = append(contextOut, *ctx...)
+		}
 	}
 
-	if err != nil && err == intentHandlers.ErrIntentNoMatch {
+	if hasGameToken && !intentHandled {
+		var ctx *[]actions.ApiAiContext
+		ctx, err = intentHandlers.IngameHandler(input, runtimeState)
+		if err == nil {
+			intentHandled = true
+		}
+		if err != nil && err != intentHandlers.ErrIntentNoMatch {
+			fmt.Println("Error", err)
+			return
+		}
+		if ctx != nil {
+			contextOut = append(contextOut, *ctx...)
+		}
+	}
+
+	if !intentHandled {
 		intentHandlers.Unknown(input, runtimeState)
 	}
 
@@ -170,7 +174,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hasPreviousOutput := false
-	for _, ctx := range input.Result.Contexts {
+	for _, ctx := range contextOut {
 		if ctx.Name != "previous_output" {
 			continue
 		}
