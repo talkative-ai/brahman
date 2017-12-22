@@ -47,7 +47,7 @@ var IntentResponses = RandomStringCollection{
 
 // ErrIntentNoMatch occurs when an intent handler does not match the current context
 // For example, a user saying "cancel" for no reason
-var ErrIntentNoMatch error = fmt.Errorf("aum:no_match")
+var ErrIntentNoMatch = fmt.Errorf("aum:no_match")
 
 // IntentHandler is a function signature for handling api.ai requests
 type IntentHandler func(*actions.ApiAiRequest, *models.AumMutableRuntimeState) (contextOut *[]actions.ApiAiContext, err error)
@@ -67,44 +67,56 @@ var List = map[string]IntentHandler{
 }
 
 // Welcome IntentHandler provides an introduction to AUM
-func Welcome(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func Welcome(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	if message.State.PubID != uuid.Nil {
+		return nil, ErrIntentNoMatch
+	}
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["introduce"]))
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["instructions"]))
 	return nil, nil
 }
 
 // Info IntentHandler provides additional information on AUM
-func Info(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func Info(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	if message.State.PubID != uuid.Nil {
+		return nil, ErrIntentNoMatch
+	}
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["aum info"]))
 	return nil, nil
 }
 
 // ListApps IntentHandler provides additional information on AUM
-func ListApps(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	if message.State.PubID != uuid.Nil {
+		return nil, ErrIntentNoMatch
+	}
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["aum info"]))
 	return nil, nil
 }
 
 // Unknown IntentHandler handles all unknown intents
-func Unknown(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func Unknown(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["unknown"]))
 	return nil, nil
 }
 
 // InitializeGame IntentHandler will begin a specified game if it exists
-func InitializeGame(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func InitializeGame(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+	if message.State.PubID != uuid.Nil {
+		return nil, ErrIntentNoMatch
+	}
 	redis, err := providers.ConnectRedis()
 	defer redis.Close()
 	if err != nil {
 		return nil, err
 	}
-	projectID := uuid.FromStringOrNil(redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(q.Result.Parameters["game"])).Val())
+	projectID := uuid.FromStringOrNil(redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(input.Result.Parameters["game"])).Val())
 	if projectID == uuid.Nil {
 		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet!")
 		return nil, nil
 	}
 	message.State.PubID = projectID
-	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", q.Result.Parameters["game"]))
+	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", input.Result.Parameters["game"]))
 	var setup models.ARAResetApp
 	setup.Execute(message)
 	return nil, nil
@@ -214,5 +226,5 @@ func RepeatHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableR
 		}
 		return &outputContext, nil
 	}
-	return nil, ErrIntentNoMatch
+	return Welcome(input, runtimeState)
 }
