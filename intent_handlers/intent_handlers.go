@@ -17,6 +17,8 @@ import (
 type RandomStringCollection map[string][]string
 
 // IntentResponses provide a variety of responses to generic requests
+// TODO: Consider storing these as a database entry or external file so there's no deploy required
+// with every single update?
 var IntentResponses = RandomStringCollection{
 	"unknown": []string{
 		"I'm not sure I understand.",
@@ -37,12 +39,12 @@ var IntentResponses = RandomStringCollection{
 		"Hello, you're speaking to AUM. I hope you're having a great day.",
 	},
 	"instructions": []string{
-		"You can say \"List\" to hear a list of playable AUM applications. Otherwise, try asking 'What is AUM?'",
+		"You can say \"list apps\" to hear a list of playable AUM applications. Otherwise, try asking 'What is AUM?'",
 	},
 	"aum info": []string{
 		`AUM is a platform to create, publish, and play voice apps like interactive stories.
 		AUM is free to use. Read more at our website, www.aum.ai!
-		To hear a list of apps you can say "List"`,
+		To hear a list of apps you can say "list apps"`,
 	},
 }
 
@@ -209,7 +211,7 @@ func HelpHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRun
 	} else {
 		runtimeState.OutputSSML.Text(`
 			You can say "repeat" to hear the last thing over again,
-			"stop app" to save your progress and leave the current app,
+			"stop app" to leave the current app,
 			"restart app" to start from the beginning erasing all of your progress,
 			and "help" to hear this help menu.`)
 	}
