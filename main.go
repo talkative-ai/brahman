@@ -169,7 +169,7 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := actions.ServiceResponse{
-		DisplayText: runtimeState.OutputSSML.String(),
+		DisplayText: runtimeState.OutputSSML.Raw(),
 		Speech:      runtimeState.OutputSSML.String(),
 	}
 
@@ -185,7 +185,9 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 			actions.ApiAiContext{
 				Name: "previous_output",
 				Parameters: map[string]string{
-					"DisplayText": runtimeState.OutputSSML.String(),
+					// TODO: Make sure Shiva filters out special chars that would break this
+					// Namely '<'
+					"DisplayText": runtimeState.OutputSSML.Raw(),
 					"Speech":      runtimeState.OutputSSML.String(),
 				},
 				Lifespan: 1,

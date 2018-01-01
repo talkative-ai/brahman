@@ -44,7 +44,7 @@ var IntentResponses = RandomStringCollection{
 	"aum info": []string{
 		`AUM is a platform to create, publish, and play voice apps like interactive stories.
 		AUM is free to use. Read more at our website, www.aum.ai!
-		To hear a list of apps you can say "list apps"`,
+		To hear a list of apps, try saying "list apps"`,
 	},
 }
 
@@ -74,8 +74,9 @@ func Welcome(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
-	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["introduce"]))
-	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["instructions"]))
+	message.OutputSSML = message.OutputSSML.
+		Text(common.ChooseString(IntentResponses["introduce"])).
+		Text(common.ChooseString(IntentResponses["instructions"]))
 	return nil, nil
 }
 
@@ -112,9 +113,9 @@ func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeStat
 	message.OutputSSML.Text(`Some available apps to play are: `)
 	for i := 0; i < len(items); i++ {
 		if i > 0 {
-			message.OutputSSML.Text("Another app is")
+			message.OutputSSML.Text(", another app is ")
 		}
-		message.OutputSSML.Text(items[i].Title)
+		message.OutputSSML.Text(fmt.Sprintf("'%v'", items[i].Title))
 	}
 	message.OutputSSML.Text(`. To play an app, say "Let's play" and then the name of the app.`)
 	return nil, nil
@@ -239,7 +240,7 @@ func RepeatHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableR
 		if ctx.Name != "previous_output" {
 			continue
 		}
-		runtimeState.OutputSSML.Text(ctx.Parameters["DisplayText"])
+		runtimeState.OutputSSML.Text(ctx.Parameters["Speech"])
 		outputContext := []actions.ApiAiContext{
 			actions.ApiAiContext{
 				Name: "previous_output",
