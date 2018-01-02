@@ -123,8 +123,25 @@ func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeStat
 
 // Unknown IntentHandler handles all unknown intents
 func Unknown(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
-	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["unknown"]))
-	return nil, nil
+	contextOut := []actions.ApiAiContext{}
+	for _, ctx := range input.Result.Contexts {
+		if ctx.Name != "previous_output" {
+			continue
+		}
+		contextOut = []actions.ApiAiContext{
+			actions.ApiAiContext{
+				Name: "previous_output",
+				Parameters: map[string]string{
+					"DisplayText": ctx.Parameters["DisplayText"],
+					"Speech":      ctx.Parameters["Speech"],
+				},
+				Lifespan: 1,
+			},
+		}
+	}
+	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["unknown"])).
+		Text(" Try saying 'help' if you're unsure what to do.")
+	return &contextOut, nil
 }
 
 // InitializeGame IntentHandler will begin a specified game if it exists
@@ -139,7 +156,7 @@ func InitializeGame(input *actions.ApiAiRequest, message *models.AumMutableRunti
 	}
 	projectID := uuid.FromStringOrNil(redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(input.Result.Parameters["game"])).Val())
 	if projectID == uuid.Nil {
-		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet!")
+		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet! Try saying 'help' if you're unsure what to do next.")
 		return nil, nil
 	}
 	message.State.PubID = projectID
@@ -196,7 +213,7 @@ func ConfirmHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutable
 func CancelHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	for _, ctx := range input.Result.Contexts {
 		if ctx.Name == "requested_restart" {
-			runtimeState.OutputSSML.Text(`Okay, you've cancelled restarting.`)
+			runtimeState.OutputSSML.Text(`Okay, you've cancelled restarting. Try saying 'help' if you're unsure what to do next.`)
 			return nil, nil
 		}
 	}

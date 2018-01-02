@@ -158,7 +158,11 @@ func AIRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !intentHandled {
-		intentHandlers.Unknown(input, runtimeState)
+		_, err = intentHandlers.Unknown(input, runtimeState)
+		if err != nil {
+			fmt.Println("Error", err)
+			return
+		}
 	}
 
 	if input.Result.Metadata.IntentName != "app.stop" &&
