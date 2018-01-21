@@ -10,7 +10,7 @@ import (
 	"github.com/artificial-universe-maker/core/common"
 	"github.com/artificial-universe-maker/core/db"
 	"github.com/artificial-universe-maker/core/models"
-	"github.com/artificial-universe-maker/core/providers"
+	"github.com/artificial-universe-maker/core/redis"
 )
 
 // RandomStringCollection is a collection of potential strings categorized under a string key
@@ -95,12 +95,8 @@ func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeStat
 		return nil, ErrIntentNoMatch
 	}
 
-	err := db.InitializeDB()
-	if err != nil {
-		return nil, err
-	}
 	var items []models.AumProject
-	_, err = db.DBMap.Select(&items, `
+	_, err := db.DBMap.Select(&items, `
 		SELECT DISTINCT ON (pp."ProjectID")
 			p."Title"
 		FROM published_workbench_projects pp
@@ -109,6 +105,9 @@ func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeStat
 		ORDER BY pp."ProjectID", pp."CreatedAt" DESC
 		LIMIT 5
 	`)
+	if err != nil {
+		return nil, err
+	}
 
 	message.OutputSSML.Text(`Some available apps to play are: `)
 	for i := 0; i < len(items); i++ {
@@ -149,12 +148,7 @@ func InitializeGame(input *actions.ApiAiRequest, message *models.AumMutableRunti
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
-	redis, err := providers.ConnectRedis()
-	defer redis.Close()
-	if err != nil {
-		return nil, err
-	}
-	projectID := uuid.FromStringOrNil(redis.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(input.Result.Parameters["game"])).Val())
+	projectID := uuid.FromStringOrNil(redis.Instance.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(input.Result.Parameters["game"])).Val())
 	if projectID == uuid.Nil {
 		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet! Try saying 'help' if you're unsure what to do next.")
 		return nil, nil
