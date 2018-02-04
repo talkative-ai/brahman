@@ -39,11 +39,11 @@ var IntentResponses = RandomStringCollection{
 		"Hello, you're speaking to AUM. I hope you're having a great day.",
 	},
 	"instructions": []string{
-		"You can say \"list apps\" to hear a list of playable AUM applications. Otherwise, try asking 'What is AUM?'",
+		"You can say \"list apps\" to hear a list of user-generated content. Otherwise, try asking 'What is AUM?'",
 	},
 	"aum info": []string{
-		`AUM is a platform to create, publish, and play voice apps like interactive stories.
-		AUM is free to use. Read more at our website, www.aum.ai!
+		`AUM is a platform to create, publish, and play apps such as interactive stories.
+		AUM is free to use and generate content for. Learn more at our website, www.aum.ai!
 		To hear a list of apps, try saying "list apps"`,
 	},
 }
