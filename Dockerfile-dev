@@ -1,4 +1,4 @@
 FROM golang:1.8
-WORKDIR /go/src/github.com/artificial-universe-maker/brahman
+WORKDIR /go/src/github.com/talkative-ai/brahman
 ENTRYPOINT ["go"]
 CMD ["run", "main.go"]

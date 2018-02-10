@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/artificial-universe-maker/core/prehandle"
-	"github.com/artificial-universe-maker/core/router"
+	"github.com/talkative-ai/core/prehandle"
+	"github.com/talkative-ai/core/router"
 )
 
 // GetProjects router.Route

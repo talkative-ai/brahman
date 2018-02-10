@@ -3,11 +3,11 @@ package intentHandlers
 import (
 	"strings"
 
-	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
-	"github.com/artificial-universe-maker/core/db"
-	"github.com/artificial-universe-maker/core/models"
-	"github.com/artificial-universe-maker/core/redis"
-	uuid "github.com/artificial-universe-maker/go.uuid"
+	actions "github.com/talkative-ai/actions-on-google-golang/model"
+	"github.com/talkative-ai/core/db"
+	"github.com/talkative-ai/core/models"
+	"github.com/talkative-ai/core/redis"
+	uuid "github.com/talkative-ai/go.uuid"
 )
 
 func IngameHandler(q *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {

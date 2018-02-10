@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	actions "github.com/artificial-universe-maker/actions-on-google-golang/model"
-	"github.com/artificial-universe-maker/brahman/intent_handlers"
-	"github.com/artificial-universe-maker/core"
-	"github.com/artificial-universe-maker/core/models"
-	"github.com/artificial-universe-maker/core/prehandle"
-	"github.com/artificial-universe-maker/core/router"
-	ssml "github.com/artificial-universe-maker/go-ssml"
-	uuid "github.com/artificial-universe-maker/go.uuid"
 	jwt "github.com/dgrijalva/jwt-go"
+	actions "github.com/talkative-ai/actions-on-google-golang/model"
+	"github.com/talkative-ai/brahman/intent_handlers"
+	"github.com/talkative-ai/core"
+	"github.com/talkative-ai/core/models"
+	"github.com/talkative-ai/core/prehandle"
+	"github.com/talkative-ai/core/router"
+	ssml "github.com/talkative-ai/go-ssml"
+	uuid "github.com/talkative-ai/go.uuid"
 )
 
 // GetProjects router.Route
