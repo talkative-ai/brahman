@@ -34,16 +34,16 @@ var IntentResponses = RandomStringCollection{
 		"There's this one called \"%s\" that's fresh off the press.",
 	},
 	"introduce": []string{
-		"This is AUM speaking. I hope you're having a good day.",
-		"AUM here, very nice to see you.",
-		"Hello, you're speaking to AUM. I hope you're having a great day.",
+		"This is Talkative speaking. I hope you're having a good day.",
+		"Talkative here, very nice to see you.",
+		"Hello, you're speaking to Talkative. I hope you're having a great day.",
 	},
 	"instructions": []string{
-		"You can say \"list apps\" to hear a list of user-generated content. Otherwise, try asking 'What is AUM?'",
+		"You can say \"list apps\" to hear a list of user-generated content. Otherwise, try asking 'What is Talkative?'",
 	},
 	"aum info": []string{
-		`AUM is a platform to create, publish, and play apps such as interactive stories.
-		AUM is free to use and generate content for. Learn more at our website, www.aum.ai!
+		`Talkative is a platform to create, publish, and play apps such as interactive stories.
+		Talkative is free to use and generate content for. Learn more at our website, www.talkative.ai!
 		To hear a list of apps, try saying "list apps"`,
 	},
 }
@@ -69,7 +69,7 @@ var List = map[string]IntentHandler{
 	"repeat":                 RepeatHandler,
 }
 
-// Welcome IntentHandler provides an introduction to AUM
+// Welcome IntentHandler provides an introduction to Talkative
 func Welcome(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
@@ -80,7 +80,7 @@ func Welcome(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState
 	return nil, nil
 }
 
-// Info IntentHandler provides additional information on AUM
+// Info IntentHandler provides additional information on Talkative
 func Info(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
@@ -89,7 +89,7 @@ func Info(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (
 	return nil, nil
 }
 
-// ListApps IntentHandler provides additional information on AUM
+// ListApps IntentHandler provides additional information on Talkative
 func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
