@@ -41,7 +41,7 @@ var IntentResponses = RandomStringCollection{
 	"instructions": []string{
 		"You can say \"list apps\" to hear a list of user-generated content. Otherwise, try asking 'What is Talkative?'",
 	},
-	"aum info": []string{
+	"talkative info": []string{
 		`Talkative is a platform to create, publish, and play apps such as interactive stories.
 		Talkative is free to use and generate content for. Learn more at our website, www.talkative.ai!
 		To hear a list of apps, try saying "list apps"`,
@@ -50,10 +50,10 @@ var IntentResponses = RandomStringCollection{
 
 // ErrIntentNoMatch occurs when an intent handler does not match the current context
 // For example, a user saying "cancel" for no reason
-var ErrIntentNoMatch = fmt.Errorf("aum:no_match")
+var ErrIntentNoMatch = fmt.Errorf("talkative:no_match")
 
 // IntentHandler is a function signature for handling api.ai requests
-type IntentHandler func(*actions.ApiAiRequest, *models.AumMutableRuntimeState) (contextOut *[]actions.ApiAiContext, err error)
+type IntentHandler func(*actions.ApiAiRequest, *models.AIRequest) (contextOut *[]actions.ApiAiContext, err error)
 
 // List maps ApiAi intents to functions
 var List = map[string]IntentHandler{
@@ -70,7 +70,7 @@ var List = map[string]IntentHandler{
 }
 
 // Welcome IntentHandler provides an introduction to Talkative
-func Welcome(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func Welcome(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
@@ -81,21 +81,21 @@ func Welcome(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState
 }
 
 // Info IntentHandler provides additional information on Talkative
-func Info(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func Info(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
-	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["aum info"]))
+	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["talkative info"]))
 	return nil, nil
 }
 
 // ListApps IntentHandler provides additional information on Talkative
-func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func ListApps(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
 
-	var items []models.AumProject
+	var items []models.Project
 	_, err := db.DBMap.Select(&items, `
 		SELECT DISTINCT ON (pp."ProjectID")
 			p."Title"
@@ -121,7 +121,7 @@ func ListApps(input *actions.ApiAiRequest, message *models.AumMutableRuntimeStat
 }
 
 // Unknown IntentHandler handles all unknown intents
-func Unknown(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func Unknown(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	contextOut := []actions.ApiAiContext{}
 	for _, ctx := range input.Result.Contexts {
 		if ctx.Name != "previous_output" {
@@ -144,7 +144,7 @@ func Unknown(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState
 }
 
 // InitializeGame IntentHandler will begin a specified game if it exists
-func InitializeGame(input *actions.ApiAiRequest, message *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func InitializeGame(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	if message.State.PubID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
@@ -155,19 +155,19 @@ func InitializeGame(input *actions.ApiAiRequest, message *models.AumMutableRunti
 	}
 	message.State.PubID = projectID
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", input.Result.Parameters["game"]))
-	var setup models.ARAResetApp
+	var setup models.RAResetApp
 	setup.Execute(message)
 	return nil, nil
 }
 
-func AppStopHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func AppStopHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	runtimeState.OutputSSML.Text(`
 		Okay, stopping the app now. You're back to the main menu.
 		If you're not sure what to do, say "help"`)
 	return nil, nil
 }
 
-func AppRestartHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func AppRestartHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	requestedRestart := false
 	for _, ctx := range input.Result.Contexts {
 		if ctx.Name != "requested_restart" {
@@ -177,7 +177,7 @@ func AppRestartHandler(input *actions.ApiAiRequest, runtimeState *models.AumMuta
 	}
 	if requestedRestart {
 		runtimeState.OutputSSML.Text(`Okay, restarting now...`)
-		var setup models.ARAResetApp
+		var setup models.RAResetApp
 		setup.Execute(runtimeState)
 		return nil, nil
 	}
@@ -192,11 +192,11 @@ func AppRestartHandler(input *actions.ApiAiRequest, runtimeState *models.AumMuta
 	return &contextOut, nil
 }
 
-func ConfirmHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func ConfirmHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	for _, ctx := range input.Result.Contexts {
 		if ctx.Name == "requested_restart" {
 			runtimeState.OutputSSML.Text(`Okay, restarting now...`)
-			var setup models.ARAResetApp
+			var setup models.RAResetApp
 			setup.Execute(runtimeState)
 			return nil, nil
 		}
@@ -204,7 +204,7 @@ func ConfirmHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutable
 	return nil, ErrIntentNoMatch
 }
 
-func CancelHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func CancelHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	for _, ctx := range input.Result.Contexts {
 		if ctx.Name == "requested_restart" {
 			runtimeState.OutputSSML.Text(`Okay, you've cancelled restarting. Try saying 'help' if you're unsure what to do next.`)
@@ -214,7 +214,7 @@ func CancelHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableR
 	return nil, ErrIntentNoMatch
 }
 
-func HelpHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func HelpHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	if runtimeState.State.PubID == uuid.Nil {
 		runtimeState.OutputSSML.Text(`
 			You can say "list apps" to hear the apps in the multiverse,
@@ -246,7 +246,7 @@ func HelpHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRun
 	return nil, nil
 }
 
-func RepeatHandler(input *actions.ApiAiRequest, runtimeState *models.AumMutableRuntimeState) (*[]actions.ApiAiContext, error) {
+func RepeatHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	for _, ctx := range input.Result.Contexts {
 		if ctx.Name != "previous_output" {
 			continue

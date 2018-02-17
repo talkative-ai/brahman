@@ -44,8 +44,8 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Add("content-type", "application/json")
 
-	runtimeState := &models.AumMutableRuntimeState{
-		State:      models.MutableRuntimeState{},
+	runtimeState := &models.AIRequest{
+		State:      models.MutableAIRequestState{},
 		OutputSSML: ssml.NewBuilder(),
 	}
 
@@ -58,7 +58,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 
 	hasGameToken := false
 	for _, ctx := range input.Result.Contexts {
-		if !strings.HasPrefix(ctx.Name, "aum_jwt_") {
+		if !strings.HasPrefix(ctx.Name, "talkative_jwt_") {
 			continue
 		}
 		claims, err := utilities.ParseJTWClaims(ctx.Parameters["token"])
@@ -68,7 +68,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		}
 		stateMap := claims["state"].(map[string]interface{})
 
-		runtimeState.State = models.MutableRuntimeState{
+		runtimeState.State = models.MutableAIRequestState{
 			Zone:  uuid.FromStringOrNil(stateMap["Zone"].(string)),
 			PubID: uuid.FromStringOrNil(stateMap["PubID"].(string)),
 		}
@@ -177,7 +177,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func generateStateToken(runtimeState *models.AumMutableRuntimeState) *actions.ApiAiContext {
+func generateStateToken(runtimeState *models.AIRequest) *actions.ApiAiContext {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"state": runtimeState.State,
 	})
@@ -188,6 +188,6 @@ func generateStateToken(runtimeState *models.AumMutableRuntimeState) *actions.Ap
 		return nil
 	}
 
-	tokenOut := actions.ApiAiContext{Name: fmt.Sprintf("aum_jwt_%v", time.Now().UnixNano()), Parameters: map[string]string{"token": tokenString}, Lifespan: 1}
+	tokenOut := actions.ApiAiContext{Name: fmt.Sprintf("talkative_jwt_%v", time.Now().UnixNano()), Parameters: map[string]string{"token": tokenString}, Lifespan: 1}
 	return &tokenOut
 }
