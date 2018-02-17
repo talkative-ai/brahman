@@ -217,7 +217,7 @@ func CancelHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) 
 func HelpHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	if runtimeState.State.PubID == uuid.Nil {
 		runtimeState.OutputSSML.Text(`
-			You can say "list apps" to hear the apps in the multiverse,
+			You can say "list apps" to hear what's available,
 			"help" to hear this help menu,
 			and "quit" to leave.`)
 	} else {
