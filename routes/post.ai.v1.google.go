@@ -56,7 +56,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hasGameToken := false
+	hasAppToken := false
 	for _, ctx := range input.Result.Contexts {
 		if !strings.HasPrefix(ctx.Name, "talkative_jwt_") {
 			continue
@@ -69,8 +69,10 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		stateMap := claims["state"].(map[string]interface{})
 
 		runtimeState.State = models.MutableAIRequestState{
-			Zone:  uuid.FromStringOrNil(stateMap["Zone"].(string)),
-			PubID: uuid.FromStringOrNil(stateMap["PubID"].(string)),
+			Demo:      stateMap["Demo"].(bool),
+			Zone:      uuid.FromStringOrNil(stateMap["Zone"].(string)),
+			PubID:     stateMap["PubID"].(string),
+			ProjectID: uuid.FromStringOrNil(stateMap["ProjectID"].(string)),
 		}
 		runtimeState.State.ZoneActors = map[uuid.UUID][]string{}
 		if stateMap["ZoneActors"] != nil {
@@ -87,7 +89,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 			s := stateMap["CurrentDialog"].(string)
 			runtimeState.State.CurrentDialog = &s
 		}
-		hasGameToken = true
+		hasAppToken = true
 
 		// TODO: Generalize this and create consistency between brahman/intent_handlers
 		if stateMap["ZoneInitialized"] != nil {
@@ -116,9 +118,9 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if hasGameToken && !intentHandled {
+	if hasAppToken && !intentHandled {
 		var ctx *[]actions.ApiAiContext
-		ctx, err = intentHandlers.IngameHandler(input, runtimeState)
+		ctx, err = intentHandlers.InappHandler(input, runtimeState)
 		if err == nil {
 			intentHandled = true
 		}
@@ -140,9 +142,12 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if input.Result.Metadata.IntentName != "app.stop" &&
-		(hasGameToken ||
-			((input.Result.Metadata.IntentName == "app.initialize" || input.Result.Metadata.IntentName == "app.restart") &&
-				runtimeState.State.PubID != uuid.Nil)) {
+		// TODO: Figure out WTF and how to fix this mess
+		(hasAppToken ||
+			((input.Result.Metadata.IntentName == "app.initialize" ||
+				input.Result.Metadata.IntentName == "app.demo" ||
+				input.Result.Metadata.IntentName == "app.restart") &&
+				runtimeState.State.ProjectID != uuid.Nil)) {
 		contextOut = append(contextOut, *generateStateToken(runtimeState))
 	}
 

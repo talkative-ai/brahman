@@ -10,19 +10,22 @@ import (
 	uuid "github.com/talkative-ai/go.uuid"
 )
 
-func IngameHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	projectID := message.State.PubID
+func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
+	projectID := message.State.ProjectID
+	pubID := message.State.PubID
 
 	var dialogID string
 	eventIDChan := make(chan uuid.UUID)
-	go func() {
-		var newID uuid.UUID
-		err := db.Instance.QueryRow(`INSERT INTO event_user_action ("UserID", "PubID", "RawInput") VALUES ($1, $2, $3) RETURNING "ID"`, uuid.Nil, projectID, q.Result.ResolvedQuery).Scan(&newID)
-		if err != nil {
-			// TODO: Log this error somewhere
-		}
-		eventIDChan <- newID
-	}()
+	if !message.State.Demo {
+		go func() {
+			var newID uuid.UUID
+			err := db.Instance.QueryRow(`INSERT INTO event_user_action ("UserID", "ProjectID", "RawInput") VALUES ($1, $2, $3) RETURNING "ID"`, uuid.Nil, projectID, q.Result.ResolvedQuery).Scan(&newID)
+			if err != nil {
+				// TODO: Log this error somewhere
+			}
+			eventIDChan <- newID
+		}()
+	}
 
 	if message.State.CurrentDialog != nil {
 		// Attempt to fetch a dialog relative to the current dialog.
@@ -33,7 +36,7 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]actio
 		currentDialogID := split[len(split)-1]
 		for _, actorID := range message.State.ZoneActors[message.State.Zone] {
 			input := models.DialogInput(q.Result.ResolvedQuery)
-			v := redis.Instance.HGet(models.KeynavCompiledDialogNodeWithinActor(projectID.String(), actorID, currentDialogID), input.Prepared())
+			v := redis.Instance.HGet(models.KeynavCompiledDialogNodeWithinActor(pubID, actorID, currentDialogID), input.Prepared())
 			if v.Err() == nil {
 				dialogID = v.Val()
 				break
@@ -45,7 +48,7 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]actio
 		// This is where conversations begin
 		for _, actorID := range message.State.ZoneActors[message.State.Zone] {
 			input := models.DialogInput(q.Result.ResolvedQuery)
-			v := redis.Instance.HGet(models.KeynavCompiledDialogRootWithinActor(projectID.String(), actorID), input.Prepared())
+			v := redis.Instance.HGet(models.KeynavCompiledDialogRootWithinActor(pubID, actorID), input.Prepared())
 			if v.Err() == nil {
 				dialogID = v.Val()
 				break
@@ -61,7 +64,7 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]actio
 			split := strings.Split(currentDialogKey, ":")
 			currentDialogID := split[len(split)-1]
 			for _, actorID := range message.State.ZoneActors[message.State.Zone] {
-				v := redis.Instance.HGet(models.KeynavCompiledDialogNodeWithinActor(projectID.String(), actorID, currentDialogID), models.DialogSpecialInputUnknown)
+				v := redis.Instance.HGet(models.KeynavCompiledDialogNodeWithinActor(pubID, actorID, currentDialogID), models.DialogSpecialInputUnknown)
 				if v.Err() == nil {
 					dialogID = v.Val()
 					break
@@ -69,7 +72,7 @@ func IngameHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]actio
 			}
 		} else {
 			for _, actorID := range message.State.ZoneActors[message.State.Zone] {
-				v := redis.Instance.HGet(models.KeynavCompiledDialogRootWithinActor(projectID.String(), actorID), models.DialogSpecialInputUnknown)
+				v := redis.Instance.HGet(models.KeynavCompiledDialogRootWithinActor(pubID, actorID), models.DialogSpecialInputUnknown)
 				if v.Err() == nil {
 					dialogID = v.Val()
 					break

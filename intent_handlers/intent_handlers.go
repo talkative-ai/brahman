@@ -1,6 +1,7 @@
 package intentHandlers
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -25,7 +26,7 @@ var IntentResponses = RandomStringCollection{
 		"Sorry, I don't think I get that.",
 		"That doesn't make sense to me, sorry.",
 	},
-	"hint actions after list.games": []string{
+	"hint actions after list.apps": []string{
 		"Or would you like to hear some genres?",
 		"There's a lot of genres too.",
 	},
@@ -58,7 +59,8 @@ type IntentHandler func(*actions.ApiAiRequest, *models.AIRequest) (contextOut *[
 // List maps ApiAi intents to functions
 var List = map[string]IntentHandler{
 	"Default Welcome Intent": Welcome,
-	"app.initialize":         InitializeGame,
+	"app.initialize":         InitializeApp,
+	"app.demo":               DemoApp,
 	"info":                   Info,
 	"list":                   ListApps,
 	"app.stop":               AppStopHandler,
@@ -71,7 +73,7 @@ var List = map[string]IntentHandler{
 
 // Welcome IntentHandler provides an introduction to Talkative
 func Welcome(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if message.State.PubID != uuid.Nil {
+	if message.State.ProjectID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
 	message.OutputSSML = message.OutputSSML.
@@ -82,7 +84,7 @@ func Welcome(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions
 
 // Info IntentHandler provides additional information on Talkative
 func Info(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if message.State.PubID != uuid.Nil {
+	if message.State.ProjectID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["talkative info"]))
@@ -91,7 +93,7 @@ func Info(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.Ap
 
 // ListApps IntentHandler provides additional information on Talkative
 func ListApps(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if message.State.PubID != uuid.Nil {
+	if message.State.ProjectID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
 
@@ -143,18 +145,44 @@ func Unknown(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions
 	return &contextOut, nil
 }
 
-// InitializeGame IntentHandler will begin a specified game if it exists
-func InitializeGame(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if message.State.PubID != uuid.Nil {
+// DemoApp enables users to demo their own app before publishing it
+func DemoApp(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
+	project := models.Project{}
+	err := db.DBMap.SelectOne(&project, `
+		SELECT "ID"
+		FROM workbench_projects
+		WHERE LOWER("Title")=LOWER($1)
+	`, input.Result.Parameters["app"])
+	if err != nil && err == sql.ErrNoRows {
+		message.OutputSSML = message.OutputSSML.Text("Cannot find that app.")
+		return nil, err
+	} else if err != nil {
+		message.OutputSSML = message.OutputSSML.Text("Sorry, there was a problem.")
+		return nil, err
+	}
+	projectID := project.ID
+	message.OutputSSML = message.OutputSSML.Text("Okay, found it.")
+	message.State.ProjectID = projectID
+	message.State.PubID = fmt.Sprintf("demo:%v", projectID.String())
+	message.State.Demo = true
+	var setup models.RAResetApp
+	setup.Execute(message)
+	return nil, nil
+}
+
+// InitializeApp IntentHandler will begin a specified app if it exists
+func InitializeApp(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
+	if message.State.ProjectID != uuid.Nil {
 		return nil, ErrIntentNoMatch
 	}
-	projectID := uuid.FromStringOrNil(redis.Instance.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(input.Result.Parameters["game"])).Val())
+	projectID := uuid.FromStringOrNil(redis.Instance.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(input.Result.Parameters["app"])).Val())
 	if projectID == uuid.Nil {
 		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet! Try saying 'help' if you're unsure what to do next.")
 		return nil, nil
 	}
-	message.State.PubID = projectID
-	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", input.Result.Parameters["game"]))
+	message.State.ProjectID = projectID
+	message.State.PubID = projectID.String()
+	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", input.Result.Parameters["app"]))
 	var setup models.RAResetApp
 	setup.Execute(message)
 	return nil, nil
@@ -215,7 +243,7 @@ func CancelHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) 
 }
 
 func HelpHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if runtimeState.State.PubID == uuid.Nil {
+	if runtimeState.State.ProjectID == uuid.Nil {
 		runtimeState.OutputSSML.Text(`
 			You can say "list apps" to hear what's available,
 			"help" to hear this help menu,
