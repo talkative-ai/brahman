@@ -43,6 +43,7 @@ func main() {
 
 	r := mux.NewRouter()
 	router.ApplyRoute(r, routes.PostGoogle)
+	router.ApplyRoute(r, routes.PostDemo)
 	router.ApplyRoute(r, routes.PostGoogleAuth)
 	router.ApplyRoute(r, routes.PostGoogleAuthToken)
 

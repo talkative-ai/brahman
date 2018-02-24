@@ -44,7 +44,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Add("content-type", "application/json")
 
-	runtimeState := &models.AIRequest{
+	requestState := &models.AIRequest{
 		State:      models.MutableAIRequestState{},
 		OutputSSML: ssml.NewBuilder(),
 	}
@@ -68,34 +68,34 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		}
 		stateMap := claims["state"].(map[string]interface{})
 
-		runtimeState.State = models.MutableAIRequestState{
+		requestState.State = models.MutableAIRequestState{
 			Demo:      stateMap["Demo"].(bool),
 			Zone:      uuid.FromStringOrNil(stateMap["Zone"].(string)),
 			PubID:     stateMap["PubID"].(string),
 			ProjectID: uuid.FromStringOrNil(stateMap["ProjectID"].(string)),
 		}
-		runtimeState.State.ZoneActors = map[uuid.UUID][]string{}
+		requestState.State.ZoneActors = map[uuid.UUID][]string{}
 		if stateMap["ZoneActors"] != nil {
 			for zone, actors := range stateMap["ZoneActors"].(map[string]interface{}) {
-				runtimeState.State.ZoneActors[uuid.FromStringOrNil(zone)] = []string{}
+				requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = []string{}
 				for _, actor := range actors.([]interface{}) {
-					runtimeState.State.ZoneActors[uuid.FromStringOrNil(zone)] = append(runtimeState.State.ZoneActors[uuid.FromStringOrNil(zone)], actor.(string))
+					requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = append(requestState.State.ZoneActors[uuid.FromStringOrNil(zone)], actor.(string))
 				}
 			}
 		}
 		if (stateMap["CurrentDialog"]) == nil {
-			runtimeState.State.CurrentDialog = nil
+			requestState.State.CurrentDialog = nil
 		} else {
 			s := stateMap["CurrentDialog"].(string)
-			runtimeState.State.CurrentDialog = &s
+			requestState.State.CurrentDialog = &s
 		}
 		hasAppToken = true
 
 		// TODO: Generalize this and create consistency between brahman/intent_handlers
 		if stateMap["ZoneInitialized"] != nil {
-			runtimeState.State.ZoneInitialized = map[uuid.UUID]bool{}
+			requestState.State.ZoneInitialized = map[uuid.UUID]bool{}
 			for key, item := range stateMap["ZoneInitialized"].(map[string]interface{}) {
-				runtimeState.State.ZoneInitialized[uuid.FromStringOrNil(key)] = item.(bool)
+				requestState.State.ZoneInitialized[uuid.FromStringOrNil(key)] = item.(bool)
 			}
 		}
 	}
@@ -105,7 +105,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 	intentHandled := false
 	if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
 		var ctx *[]actions.ApiAiContext
-		ctx, err = handler(input, runtimeState)
+		ctx, err = handler(input, requestState)
 		if err == nil {
 			intentHandled = true
 		}
@@ -120,7 +120,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 
 	if hasAppToken && !intentHandled {
 		var ctx *[]actions.ApiAiContext
-		ctx, err = intentHandlers.InappHandler(input, runtimeState)
+		ctx, err = intentHandlers.InappHandler(input, requestState)
 		if err == nil {
 			intentHandled = true
 		}
@@ -134,7 +134,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !intentHandled {
-		_, err = intentHandlers.Unknown(input, runtimeState)
+		_, err = intentHandlers.Unknown(input, requestState)
 		if err != nil {
 			fmt.Println("Error", err)
 			return
@@ -147,13 +147,13 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 			((input.Result.Metadata.IntentName == "app.initialize" ||
 				input.Result.Metadata.IntentName == "app.demo" ||
 				input.Result.Metadata.IntentName == "app.restart") &&
-				runtimeState.State.ProjectID != uuid.Nil)) {
-		contextOut = append(contextOut, *generateStateToken(runtimeState))
+				requestState.State.ProjectID != uuid.Nil)) {
+		contextOut = append(contextOut, *GenerateStateContext(GenerateStateTokenString(&requestState.State)))
 	}
 
 	response := actions.ServiceResponse{
-		DisplayText: runtimeState.OutputSSML.Raw(),
-		Speech:      runtimeState.OutputSSML.String(),
+		DisplayText: requestState.OutputSSML.Raw(),
+		Speech:      requestState.OutputSSML.String(),
 	}
 
 	hasPreviousOutput := false
@@ -170,8 +170,8 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 				Parameters: map[string]string{
 					// TODO: Make sure Shiva filters out special chars that would break this
 					// Namely '<'
-					"DisplayText": runtimeState.OutputSSML.Raw(),
-					"Speech":      runtimeState.OutputSSML.String(),
+					"DisplayText": requestState.OutputSSML.Raw(),
+					"Speech":      requestState.OutputSSML.String(),
 				},
 				Lifespan: 1,
 			})
@@ -182,17 +182,20 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func generateStateToken(runtimeState *models.AIRequest) *actions.ApiAiContext {
+func GenerateStateContext(token string) *actions.ApiAiContext {
+	tokenOut := actions.ApiAiContext{Name: fmt.Sprintf("talkative_jwt_%v", time.Now().UnixNano()), Parameters: map[string]string{"token": token}, Lifespan: 1}
+	return &tokenOut
+}
+
+func GenerateStateTokenString(state *models.MutableAIRequestState) string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"state": runtimeState.State,
+		"state": state,
 	})
 
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_KEY")))
 	if err != nil {
 		log.Fatal("Error", err)
-		return nil
+		return ""
 	}
-
-	tokenOut := actions.ApiAiContext{Name: fmt.Sprintf("talkative_jwt_%v", time.Now().UnixNano()), Parameters: map[string]string{"token": tokenString}, Lifespan: 1}
-	return &tokenOut
+	return tokenString
 }
