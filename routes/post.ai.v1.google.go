@@ -70,6 +70,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 
 		requestState.State = models.MutableAIRequestState{
 			Demo:      stateMap["Demo"].(bool),
+			SessionID: uuid.FromStringOrNil(stateMap["SessionID"].(string)),
 			Zone:      uuid.FromStringOrNil(stateMap["Zone"].(string)),
 			PubID:     stateMap["PubID"].(string),
 			ProjectID: uuid.FromStringOrNil(stateMap["ProjectID"].(string)),

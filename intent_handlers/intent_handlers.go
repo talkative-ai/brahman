@@ -163,6 +163,7 @@ func DemoApp(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions
 	projectID := project.ID
 	message.OutputSSML = message.OutputSSML.Text("Okay, found it.")
 	message.State.ProjectID = projectID
+	message.State.SessionID = uuid.NewV4()
 	message.State.PubID = fmt.Sprintf("demo:%v", projectID.String())
 	message.State.Demo = true
 	var setup models.RAResetApp
@@ -182,6 +183,7 @@ func InitializeApp(input *actions.ApiAiRequest, message *models.AIRequest) (*[]a
 	}
 	message.State.ProjectID = projectID
 	message.State.PubID = projectID.String()
+	message.State.SessionID = uuid.NewV4()
 	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", input.Result.Parameters["app"]))
 	var setup models.RAResetApp
 	setup.Execute(message)

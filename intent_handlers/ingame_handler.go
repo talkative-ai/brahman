@@ -121,7 +121,7 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 	}
 	// TODO: Reenable
 	stateChange = false
-	if stateChange {
+	if stateChange && !message.State.Demo {
 		newID := <-eventIDChan
 		stateObject, _ := message.State.Value()
 		go db.Instance.QueryRow(`INSERT INTO event_state_change ("EventUserActionID", "StateObject") VALUES ($1, $2)`, newID, stateObject)

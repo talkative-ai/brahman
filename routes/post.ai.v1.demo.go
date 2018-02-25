@@ -3,6 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/talkative-ai/go.uuid"
 
 	apiai "github.com/talkative-ai/apiai-go"
+	"github.com/talkative-ai/core"
 	"github.com/talkative-ai/core/myerrors"
 	"github.com/talkative-ai/core/prehandle"
 	"github.com/talkative-ai/core/router"
@@ -31,15 +33,13 @@ var PostDemo = &router.Route{
 }
 
 type postDemoInput struct {
-	Session *string
 	Message string
 	State   *string
 }
 type postDemoOutput struct {
-	Session *string
-	SSML    string
-	Text    string
-	State   *string
+	SSML  string
+	Text  string
+	State *string
 }
 
 // AIRequestHandler handles requests that expect language parsing and an AI response
@@ -55,13 +55,6 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 		myerrors.ServerError(w, r, err)
 		return
 	}
-
-	if input.Session == nil {
-		session := uuid.NewV4().String()
-		input.Session = &session
-	}
-
-	output.Session = input.Session
 
 	if input.State == nil {
 		// Parse the project ID from the URL
@@ -81,6 +74,8 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 			OutputSSML: ssml.NewBuilder(),
 		}
 		message.State = models.MutableAIRequestState{}
+		message.State.Demo = true
+		message.State.SessionID = uuid.NewV4()
 		message.State.ProjectID = projectID
 		message.State.PubID = fmt.Sprintf("demo:%v", projectID.String())
 		setup.Execute(&message)
@@ -90,6 +85,14 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 		token := GenerateStateTokenString(&message.State)
 		output.State = &token
 	} else {
+
+		claims, err := utilities.ParseJTWClaims(*input.State)
+		if err != nil {
+			log.Print("Error:", err)
+			return
+		}
+		stateMap := claims["state"].(map[string]interface{})
+
 		client, err := apiai.NewClient(
 			&apiai.ClientConfig{
 				Token:      "83e827c573d54af89f994e18ebc1f279",
@@ -111,7 +114,7 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 		for key, val := range context.Parameters {
 			ctx.Params[key] = val
 		}
-		qr, err := client.Query(apiai.Query{Query: []string{input.Message}, Contexts: []apiai.Context{ctx}, SessionId: *output.Session})
+		qr, err := client.Query(apiai.Query{Query: []string{input.Message}, Contexts: []apiai.Context{ctx}, SessionId: stateMap["SessionID"].(string)})
 		if err != nil {
 			myerrors.ServerError(w, r, err)
 			return
