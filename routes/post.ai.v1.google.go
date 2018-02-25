@@ -56,48 +56,60 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	greatestTokenKey := ""
+	greatestTokenValue := ""
+
 	hasAppToken := false
 	for _, ctx := range input.Result.Contexts {
 		if !strings.HasPrefix(ctx.Name, "talkative_jwt_") {
 			continue
 		}
-		claims, err := utilities.ParseJTWClaims(ctx.Parameters["token"])
-		if err != nil {
-			log.Print("Error:", err)
-			return
+		if ctx.Name > greatestTokenKey {
+			// For some reason, Dialogflow contexts expiring as expected.
+			// i.e. a context will nondeterministically remain for 1 more request than expected.
+			// Therefore we need to compare all existing JWTs which are keyed by nanosecond
+			// and grab only the most recent one.
+			greatestTokenKey = ctx.Name
+			greatestTokenValue = ctx.Parameters["token"]
+			hasAppToken = true
 		}
-		stateMap := claims["state"].(map[string]interface{})
+	}
 
-		requestState.State = models.MutableAIRequestState{
-			Demo:      stateMap["Demo"].(bool),
-			SessionID: uuid.FromStringOrNil(stateMap["SessionID"].(string)),
-			Zone:      uuid.FromStringOrNil(stateMap["Zone"].(string)),
-			PubID:     stateMap["PubID"].(string),
-			ProjectID: uuid.FromStringOrNil(stateMap["ProjectID"].(string)),
-		}
-		requestState.State.ZoneActors = map[uuid.UUID][]string{}
-		if stateMap["ZoneActors"] != nil {
-			for zone, actors := range stateMap["ZoneActors"].(map[string]interface{}) {
-				requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = []string{}
-				for _, actor := range actors.([]interface{}) {
-					requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = append(requestState.State.ZoneActors[uuid.FromStringOrNil(zone)], actor.(string))
-				}
+	claims, err := utilities.ParseJTWClaims(greatestTokenValue)
+	if err != nil {
+		log.Print("Error:", err)
+		return
+	}
+	stateMap := claims["state"].(map[string]interface{})
+
+	requestState.State = models.MutableAIRequestState{
+		Demo:      stateMap["Demo"].(bool),
+		SessionID: uuid.FromStringOrNil(stateMap["SessionID"].(string)),
+		Zone:      uuid.FromStringOrNil(stateMap["Zone"].(string)),
+		PubID:     stateMap["PubID"].(string),
+		ProjectID: uuid.FromStringOrNil(stateMap["ProjectID"].(string)),
+	}
+	requestState.State.ZoneActors = map[uuid.UUID][]string{}
+	if stateMap["ZoneActors"] != nil {
+		for zone, actors := range stateMap["ZoneActors"].(map[string]interface{}) {
+			requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = []string{}
+			for _, actor := range actors.([]interface{}) {
+				requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = append(requestState.State.ZoneActors[uuid.FromStringOrNil(zone)], actor.(string))
 			}
 		}
-		if (stateMap["CurrentDialog"]) == nil {
-			requestState.State.CurrentDialog = nil
-		} else {
-			s := stateMap["CurrentDialog"].(string)
-			requestState.State.CurrentDialog = &s
-		}
-		hasAppToken = true
+	}
+	if (stateMap["CurrentDialog"]) == nil {
+		requestState.State.CurrentDialog = nil
+	} else {
+		s := stateMap["CurrentDialog"].(string)
+		requestState.State.CurrentDialog = &s
+	}
 
-		// TODO: Generalize this and create consistency between brahman/intent_handlers
-		if stateMap["ZoneInitialized"] != nil {
-			requestState.State.ZoneInitialized = map[uuid.UUID]bool{}
-			for key, item := range stateMap["ZoneInitialized"].(map[string]interface{}) {
-				requestState.State.ZoneInitialized[uuid.FromStringOrNil(key)] = item.(bool)
-			}
+	// TODO: Generalize this and create consistency between brahman/intent_handlers
+	if stateMap["ZoneInitialized"] != nil {
+		requestState.State.ZoneInitialized = map[uuid.UUID]bool{}
+		for key, item := range stateMap["ZoneInitialized"].(map[string]interface{}) {
+			requestState.State.ZoneInitialized[uuid.FromStringOrNil(key)] = item.(bool)
 		}
 	}
 
@@ -135,6 +147,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !intentHandled {
+		fmt.Printf("Unknown: %+v\n%+v\n", input, requestState)
 		_, err = intentHandlers.Unknown(input, requestState)
 		if err != nil {
 			fmt.Println("Error", err)

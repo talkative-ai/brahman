@@ -40,6 +40,8 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 			if v.Err() == nil {
 				dialogID = v.Val()
 				break
+			} else {
+				return nil, v.Err()
 			}
 		}
 	} else {
@@ -52,6 +54,8 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 			if v.Err() == nil {
 				dialogID = v.Val()
 				break
+			} else {
+				return nil, v.Err()
 			}
 		}
 	}
@@ -68,6 +72,8 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 				if v.Err() == nil {
 					dialogID = v.Val()
 					break
+				} else {
+					return nil, v.Err()
 				}
 			}
 		} else {
@@ -76,6 +82,8 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 				if v.Err() == nil {
 					dialogID = v.Val()
 					break
+				} else {
+					return nil, v.Err()
 				}
 			}
 		}
