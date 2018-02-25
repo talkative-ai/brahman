@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/rs/cors"
 	"github.com/talkative-ai/brahman/routes"
 	"github.com/talkative-ai/core/db"
 	"github.com/talkative-ai/core/redis"
@@ -47,7 +48,15 @@ func main() {
 	router.ApplyRoute(r, routes.PostGoogleAuth)
 	router.ApplyRoute(r, routes.PostGoogleAuthToken)
 
-	http.Handle("/", r)
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"https://talkative.ai", "https://harihara.ngrok.io", "http://brahman.ngrok.io", "https://brahman.ngrok.io", "https://workbench.talkative.ai", "http://localhost:3000", "http://localhost:8080", "http://localhost:3001"},
+		AllowCredentials: true,
+		AllowedHeaders:   []string{"x-token", "accept", "content-type"},
+		ExposedHeaders:   []string{"etag", "x-token"},
+		AllowedMethods:   []string{"GET", "PATCH", "POST", "PUT"},
+	})
+
+	http.Handle("/", c.Handler(r))
 
 	log.Println("Brahman starting server on localhost:8080")
 

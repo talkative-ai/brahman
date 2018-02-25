@@ -35,6 +35,12 @@ type postDemoInput struct {
 	Message string
 	State   *string
 }
+type postDemoOutput struct {
+	Session *string
+	SSML    string
+	Text    string
+	State   *string
+}
 
 // AIRequestHandler handles requests that expect language parsing and an AI response
 // Currently expects ApiAi requests
@@ -42,7 +48,7 @@ type postDemoInput struct {
 func postDemoHander(w http.ResponseWriter, r *http.Request) {
 
 	var input postDemoInput
-	output := postDemoInput{}
+	output := postDemoOutput{}
 
 	err := json.Unmarshal([]byte(r.Header.Get("X-Body")), &input)
 	if err != nil {
@@ -79,7 +85,8 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 		message.State.PubID = fmt.Sprintf("demo:%v", projectID.String())
 		setup.Execute(&message)
 
-		output.Message = message.OutputSSML.String()
+		output.SSML = message.OutputSSML.String()
+		output.Text = message.OutputSSML.Raw()
 		token := GenerateStateTokenString(&message.State)
 		output.State = &token
 	} else {
@@ -109,7 +116,8 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 			myerrors.ServerError(w, r, err)
 			return
 		}
-		output.Message = qr.Result.Fulfillment.Speech
+		output.SSML = qr.Result.Fulfillment.Speech
+		output.Text = qr.Result.Fulfillment.DisplayText
 		for _, ctx := range qr.Result.Contexts {
 			if !strings.HasPrefix(ctx.Name, "talkative_jwt_") {
 				continue
