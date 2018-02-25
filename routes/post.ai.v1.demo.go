@@ -31,6 +31,7 @@ var PostDemo = &router.Route{
 }
 
 type postDemoInput struct {
+	Session *string
 	Message string
 	State   *string
 }
@@ -48,6 +49,13 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 		myerrors.ServerError(w, r, err)
 		return
 	}
+
+	if input.Session == nil {
+		session := uuid.NewV4().String()
+		input.Session = &session
+	}
+
+	output.Session = input.Session
 
 	if input.State == nil {
 		// Parse the project ID from the URL
@@ -83,7 +91,8 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 			},
 		)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			myerrors.ServerError(w, r, err)
+			return
 		}
 		context := GenerateStateContext(*input.State)
 		//Set the query string and your current user identifier.
@@ -91,12 +100,14 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 		ctx := apiai.Context{}
 		ctx.Name = context.Name
 		ctx.Lifespan = context.Lifespan
+		ctx.Params = map[string]interface{}{}
 		for key, val := range context.Parameters {
 			ctx.Params[key] = val
 		}
-		qr, err := client.Query(apiai.Query{Query: []string{input.Message}, Contexts: []apiai.Context{ctx}})
+		qr, err := client.Query(apiai.Query{Query: []string{input.Message}, Contexts: []apiai.Context{ctx}, SessionId: *output.Session})
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
+			myerrors.ServerError(w, r, err)
+			return
 		}
 		output.Message = qr.Result.Fulfillment.Speech
 		for _, ctx := range qr.Result.Contexts {
