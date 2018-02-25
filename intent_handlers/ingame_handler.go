@@ -3,6 +3,7 @@ package intentHandlers
 import (
 	"strings"
 
+	goredis "github.com/go-redis/redis"
 	actions "github.com/talkative-ai/actions-on-google-golang/model"
 	"github.com/talkative-ai/core/db"
 	"github.com/talkative-ai/core/models"
@@ -37,7 +38,7 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 		for _, actorID := range message.State.ZoneActors[message.State.Zone] {
 			input := models.DialogInput(q.Result.ResolvedQuery)
 			v := redis.Instance.HGet(models.KeynavCompiledDialogNodeWithinActor(pubID, actorID, currentDialogID), input.Prepared())
-			if v.Err() == nil {
+			if v.Err() == nil || v.Err() == goredis.Nil {
 				dialogID = v.Val()
 				break
 			} else {
@@ -51,7 +52,7 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 		for _, actorID := range message.State.ZoneActors[message.State.Zone] {
 			input := models.DialogInput(q.Result.ResolvedQuery)
 			v := redis.Instance.HGet(models.KeynavCompiledDialogRootWithinActor(pubID, actorID), input.Prepared())
-			if v.Err() == nil {
+			if v.Err() == nil || v.Err() == goredis.Nil {
 				dialogID = v.Val()
 				break
 			} else {
@@ -69,7 +70,7 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 			currentDialogID := split[len(split)-1]
 			for _, actorID := range message.State.ZoneActors[message.State.Zone] {
 				v := redis.Instance.HGet(models.KeynavCompiledDialogNodeWithinActor(pubID, actorID, currentDialogID), models.DialogSpecialInputUnknown)
-				if v.Err() == nil {
+				if v.Err() == nil || v.Err() == goredis.Nil {
 					dialogID = v.Val()
 					break
 				} else {
@@ -79,7 +80,7 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 		} else {
 			for _, actorID := range message.State.ZoneActors[message.State.Zone] {
 				v := redis.Instance.HGet(models.KeynavCompiledDialogRootWithinActor(pubID, actorID), models.DialogSpecialInputUnknown)
-				if v.Err() == nil {
+				if v.Err() == nil || v.Err() == goredis.Nil {
 					dialogID = v.Val()
 					break
 				} else {
