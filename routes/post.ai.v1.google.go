@@ -75,41 +75,43 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	claims, err := utilities.ParseJTWClaims(greatestTokenValue)
-	if err != nil {
-		log.Print("Error:", err)
-		return
-	}
-	stateMap := claims["state"].(map[string]interface{})
+	if hasAppToken {
+		claims, err := utilities.ParseJTWClaims(greatestTokenValue)
+		if err != nil {
+			log.Print("Error:", err)
+			return
+		}
+		stateMap := claims["state"].(map[string]interface{})
 
-	requestState.State = models.MutableAIRequestState{
-		Demo:      stateMap["Demo"].(bool),
-		SessionID: uuid.FromStringOrNil(stateMap["SessionID"].(string)),
-		Zone:      uuid.FromStringOrNil(stateMap["Zone"].(string)),
-		PubID:     stateMap["PubID"].(string),
-		ProjectID: uuid.FromStringOrNil(stateMap["ProjectID"].(string)),
-	}
-	requestState.State.ZoneActors = map[uuid.UUID][]string{}
-	if stateMap["ZoneActors"] != nil {
-		for zone, actors := range stateMap["ZoneActors"].(map[string]interface{}) {
-			requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = []string{}
-			for _, actor := range actors.([]interface{}) {
-				requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = append(requestState.State.ZoneActors[uuid.FromStringOrNil(zone)], actor.(string))
+		requestState.State = models.MutableAIRequestState{
+			Demo:      stateMap["Demo"].(bool),
+			SessionID: uuid.FromStringOrNil(stateMap["SessionID"].(string)),
+			Zone:      uuid.FromStringOrNil(stateMap["Zone"].(string)),
+			PubID:     stateMap["PubID"].(string),
+			ProjectID: uuid.FromStringOrNil(stateMap["ProjectID"].(string)),
+		}
+		requestState.State.ZoneActors = map[uuid.UUID][]string{}
+		if stateMap["ZoneActors"] != nil {
+			for zone, actors := range stateMap["ZoneActors"].(map[string]interface{}) {
+				requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = []string{}
+				for _, actor := range actors.([]interface{}) {
+					requestState.State.ZoneActors[uuid.FromStringOrNil(zone)] = append(requestState.State.ZoneActors[uuid.FromStringOrNil(zone)], actor.(string))
+				}
 			}
 		}
-	}
-	if (stateMap["CurrentDialog"]) == nil {
-		requestState.State.CurrentDialog = nil
-	} else {
-		s := stateMap["CurrentDialog"].(string)
-		requestState.State.CurrentDialog = &s
-	}
+		if (stateMap["CurrentDialog"]) == nil {
+			requestState.State.CurrentDialog = nil
+		} else {
+			s := stateMap["CurrentDialog"].(string)
+			requestState.State.CurrentDialog = &s
+		}
 
-	// TODO: Generalize this and create consistency between brahman/intent_handlers
-	if stateMap["ZoneInitialized"] != nil {
-		requestState.State.ZoneInitialized = map[uuid.UUID]bool{}
-		for key, item := range stateMap["ZoneInitialized"].(map[string]interface{}) {
-			requestState.State.ZoneInitialized[uuid.FromStringOrNil(key)] = item.(bool)
+		// TODO: Generalize this and create consistency between brahman/intent_handlers
+		if stateMap["ZoneInitialized"] != nil {
+			requestState.State.ZoneInitialized = map[uuid.UUID]bool{}
+			for key, item := range stateMap["ZoneInitialized"].(map[string]interface{}) {
+				requestState.State.ZoneInitialized[uuid.FromStringOrNil(key)] = item.(bool)
+			}
 		}
 	}
 
