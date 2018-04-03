@@ -3,18 +3,22 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/talkative-ai/snips-nlu-types"
+
 	jwt "github.com/dgrijalva/jwt-go"
 	actions "github.com/talkative-ai/actions-on-google-golang/model"
-	"github.com/talkative-ai/brahman/intent_handlers"
-	"github.com/talkative-ai/core"
 	"github.com/talkative-ai/core/models"
 	"github.com/talkative-ai/core/prehandle"
+	"github.com/talkative-ai/core/redis"
 	"github.com/talkative-ai/core/router"
 	ssml "github.com/talkative-ai/go-ssml"
 	uuid "github.com/talkative-ai/go.uuid"
@@ -49,39 +53,28 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		OutputSSML: ssml.NewBuilder(),
 	}
 
-	input := &actions.ApiAiRequest{}
+	input := &actions.AoGRequest{}
 	err := json.NewDecoder(r.Body).Decode(input)
 	if err != nil {
 		log.Print("Error:", err)
 		return
 	}
 
-	greatestTokenKey := ""
-	greatestTokenValue := ""
+	conversationKey := models.KeynavContextConversation(input.User.UserID, input.Conversation.ConversationID)
 
-	hasAppToken := false
-	for _, ctx := range input.Result.Contexts {
-		if !strings.HasPrefix(ctx.Name, "talkative_jwt_") {
-			continue
-		}
-		if ctx.Name > greatestTokenKey {
-			// For some reason, Dialogflow contexts expiring as expected.
-			// i.e. a context will nondeterministically remain for 1 more request than expected.
-			// Therefore we need to compare all existing JWTs which are keyed by nanosecond
-			// and grab only the most recent one.
-			greatestTokenKey = ctx.Name
-			greatestTokenValue = ctx.Parameters["token"]
-			hasAppToken = true
-		}
+	hasState := false
+
+	var state string
+	var intent snips.ResultIntent
+
+	if input.Conversation.Type != "NEW" {
+		state = redis.Instance.Get(conversationKey).String()
+		hasState = true
 	}
 
-	if hasAppToken {
-		claims, err := utilities.ParseJTWClaims(greatestTokenValue)
-		if err != nil {
-			log.Print("Error:", err)
-			return
-		}
-		stateMap := claims["state"].(map[string]interface{})
+	if hasState {
+		var stateMap map[string]interface{}
+		json.Unmarshal([]byte(state), stateMap)
 
 		requestState.State = models.MutableAIRequestState{
 			Demo:      stateMap["Demo"].(bool),
@@ -113,87 +106,137 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 				requestState.State.ZoneInitialized[uuid.FromStringOrNil(key)] = item.(bool)
 			}
 		}
-	}
 
-	contextOut := []actions.ApiAiContext{}
+		data := url.Values{}
+		data.Set("query", input.Inputs[0].RawInputs[0].Query)
+		// Note the context here is set to App, rather than Talkative
+		// because this isn't a conversation with Talkative,
+		// it's a conversation with the app
+		data.Set("context", models.KeynavStaticIntentsApp())
 
-	intentHandled := false
-	if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
-		var ctx *[]actions.ApiAiContext
-		ctx, err = handler(input, requestState)
-		if err == nil {
-			intentHandled = true
-		}
-		if err != nil && err != intentHandlers.ErrIntentNoMatch {
-			fmt.Println("Error", err)
-			return
-		}
-		if ctx != nil {
-			contextOut = append(contextOut, *ctx...)
-		}
-	}
-
-	if hasAppToken && !intentHandled {
-		var ctx *[]actions.ApiAiContext
-		ctx, err = intentHandlers.InappHandler(input, requestState)
-		if err == nil {
-			intentHandled = true
-		}
-		if err != nil && err != intentHandlers.ErrIntentNoMatch {
-			fmt.Println("Error", err)
-			return
-		}
-		if ctx != nil {
-			contextOut = append(contextOut, *ctx...)
-		}
-	}
-
-	if !intentHandled {
-		fmt.Printf("Unknown: %+v\n%+v\n", input, requestState)
-		_, err = intentHandlers.Unknown(input, requestState)
+		rq, err := http.NewRequest("POST", fmt.Sprintf("http://kalidasa:8080/v1/parse"), strings.NewReader(data.Encode()))
 		if err != nil {
-			fmt.Println("Error", err)
-			return
+			fmt.Println("Error in TrainData", err)
+			// TODO: Handle errors
 		}
+		r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+
+		client := http.Client{}
+		resp, err := client.Do(rq)
+
+		rawResponse, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println("Error in TrainData", err)
+			// TODO: Handle errors
+		}
+
+		json.Unmarshal(rawResponse, &intent)
+
+	} else {
+		data := url.Values{}
+		data.Set("query", input.Inputs[0].RawInputs[0].Query)
+		// Note the context here is set to Talkative, rather than App
+		data.Set("context", models.KeynavStaticIntentsTalkative())
+
+		rq, err := http.NewRequest("POST", fmt.Sprintf("http://kalidasa:8080/v1/parse"), strings.NewReader(data.Encode()))
+		if err != nil {
+			fmt.Println("Error in TrainData", err)
+			// TODO: Handle errors
+		}
+		r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+
+		client := http.Client{}
+		resp, err := client.Do(rq)
+
+		rawResponse, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		json.Unmarshal(rawResponse, &intent)
 	}
 
-	if input.Result.Metadata.IntentName != "app.stop" &&
-		// TODO: Figure out WTF and how to fix this mess
-		(hasAppToken ||
-			((input.Result.Metadata.IntentName == "app.initialize" ||
-				input.Result.Metadata.IntentName == "app.demo" ||
-				input.Result.Metadata.IntentName == "app.restart") &&
-				requestState.State.ProjectID != uuid.Nil)) {
-		contextOut = append(contextOut, *GenerateStateContext(GenerateStateTokenString(&requestState.State)))
-	}
+	// contextOut := []actions.ApiAiContext{}
+
+	// intentHandled := false
+	// if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
+	// 	var ctx *[]actions.ApiAiContext
+	// 	ctx, err = handler(input, requestState)
+	// 	if err == nil {
+	// 		intentHandled = true
+	// 	}
+	// 	if err != nil && err != intentHandlers.ErrIntentNoMatch {
+	// 		fmt.Println("Error", err)
+	// 		return
+	// 	}
+	// 	if ctx != nil {
+	// 		contextOut = append(contextOut, *ctx...)
+	// 	}
+	// }
+
+	// if hasAppToken && !intentHandled {
+	// 	var ctx *[]actions.ApiAiContext
+	// 	ctx, err = intentHandlers.InappHandler(input, requestState)
+	// 	if err == nil {
+	// 		intentHandled = true
+	// 	}
+	// 	if err != nil && err != intentHandlers.ErrIntentNoMatch {
+	// 		fmt.Println("Error", err)
+	// 		return
+	// 	}
+	// 	if ctx != nil {
+	// 		contextOut = append(contextOut, *ctx...)
+	// 	}
+	// }
+
+	// if !intentHandled {
+	// 	fmt.Printf("Unknown: %+v\n%+v\n", input, requestState)
+	// 	_, err = intentHandlers.Unknown(input, requestState)
+	// 	if err != nil {
+	// 		fmt.Println("Error", err)
+	// 		return
+	// 	}
+	// }
+
+	// if input.Result.Metadata.IntentName != "app.stop" &&
+	// 	// TODO: Figure out WTF and how to fix this mess
+	// 	(hasAppToken ||
+	// 		((input.Result.Metadata.IntentName == "app.initialize" ||
+	// 			input.Result.Metadata.IntentName == "app.demo" ||
+	// 			input.Result.Metadata.IntentName == "app.restart") &&
+	// 			requestState.State.ProjectID != uuid.Nil)) {
+	// 	contextOut = append(contextOut, *GenerateStateContext(GenerateStateTokenString(&requestState.State)))
+	// }
 
 	response := actions.ServiceResponse{
 		DisplayText: requestState.OutputSSML.Raw(),
 		Speech:      requestState.OutputSSML.String(),
 	}
 
-	hasPreviousOutput := false
-	for _, ctx := range contextOut {
-		if ctx.Name != "previous_output" {
-			continue
-		}
-		hasPreviousOutput = true
-	}
-	if !hasPreviousOutput {
-		contextOut = append(contextOut,
-			actions.ApiAiContext{
-				Name: "previous_output",
-				Parameters: map[string]string{
-					// TODO: Make sure Shiva filters out special chars that would break this
-					// Namely '<'
-					"DisplayText": requestState.OutputSSML.Raw(),
-					"Speech":      requestState.OutputSSML.String(),
-				},
-				Lifespan: 1,
-			})
-	}
+	// hasPreviousOutput := false
+	// for _, ctx := range contextOut {
+	// 	if ctx.Name != "previous_output" {
+	// 		continue
+	// 	}
+	// 	hasPreviousOutput = true
+	// }
+	// if !hasPreviousOutput {
+	// 	contextOut = append(contextOut,
+	// 		actions.ApiAiContext{
+	// 			Name: "previous_output",
+	// 			Parameters: map[string]string{
+	// 				// TODO: Make sure Shiva filters out special chars that would break this
+	// 				// Namely '<'
+	// 				"DisplayText": requestState.OutputSSML.Raw(),
+	// 				"Speech":      requestState.OutputSSML.String(),
+	// 			},
+	// 			Lifespan: 1,
+	// 		})
+	// }
 
-	response.ContextOut = &contextOut
+	// response.ContextOut = &contextOut
 
 	json.NewEncoder(w).Encode(response)
 }

@@ -58,24 +58,22 @@ type IntentHandler func(*actions.ApiAiRequest, *models.AIRequest) (contextOut *[
 
 // List maps ApiAi intents to functions
 var List = map[string]IntentHandler{
-	"Default Welcome Intent": Welcome,
-	"app.initialize":         InitializeApp,
-	"app.demo":               DemoApp,
-	"info":                   Info,
-	"list":                   ListApps,
-	"app.stop":               AppStopHandler,
-	"app.restart":            AppRestartHandler,
-	"confirm":                ConfirmHandler,
-	"cancel":                 CancelHandler,
-	"help":                   HelpHandler,
-	"repeat":                 RepeatHandler,
+	"Default Welcome Intent":   Welcome,
+	"talkative.info":           TalkativeInfo,
+	"talkative.list":           TalkativeListApps,
+	"talkative.help":           TalkativeHelp,
+	"talkative.app.initialize": TalkativeInitialize,
+	"talkative.app.demo":       TalkativeAppDemo,
+	"app.stop":                 AppStop,
+	"app.restart":              AppRestart,
+	"app.help":                 AppHelp,
+	"confirm":                  ConfirmHandler,
+	"cancel":                   CancelHandler,
+	"repeat":                   RepeatHandler,
 }
 
 // Welcome IntentHandler provides an introduction to Talkative
 func Welcome(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if message.State.ProjectID != uuid.Nil {
-		return nil, ErrIntentNoMatch
-	}
 	message.OutputSSML = message.OutputSSML.
 		Text(common.ChooseString(IntentResponses["introduce"])).
 		Text(common.ChooseString(IntentResponses["instructions"]))
@@ -83,19 +81,13 @@ func Welcome(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions
 }
 
 // Info IntentHandler provides additional information on Talkative
-func Info(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if message.State.ProjectID != uuid.Nil {
-		return nil, ErrIntentNoMatch
-	}
+func TalkativeInfo(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["talkative info"]))
 	return nil, nil
 }
 
 // ListApps IntentHandler provides additional information on Talkative
-func ListApps(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if message.State.ProjectID != uuid.Nil {
-		return nil, ErrIntentNoMatch
-	}
+func TalkativeListApps(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
 
 	var items []models.Project
 	_, err := db.DBMap.Select(&items, `
@@ -146,7 +138,7 @@ func Unknown(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions
 }
 
 // DemoApp enables users to demo their own app before publishing it
-func DemoApp(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func TalkativeAppDemo(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	project := models.Project{}
 	err := db.DBMap.SelectOne(&project, `
 		SELECT "ID"
@@ -172,10 +164,7 @@ func DemoApp(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions
 }
 
 // InitializeApp IntentHandler will begin a specified app if it exists
-func InitializeApp(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if message.State.ProjectID != uuid.Nil {
-		return nil, ErrIntentNoMatch
-	}
+func TalkativeInitialize(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	projectID := uuid.FromStringOrNil(redis.Instance.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(input.Result.Parameters["app"])).Val())
 	if projectID == uuid.Nil {
 		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet! Try saying 'help' if you're unsure what to do next.")
@@ -190,14 +179,14 @@ func InitializeApp(input *actions.ApiAiRequest, message *models.AIRequest) (*[]a
 	return nil, nil
 }
 
-func AppStopHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func AppStop(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	runtimeState.OutputSSML.Text(`
 		Okay, stopping the app now. You're back to the main menu.
 		If you're not sure what to do, say "help"`)
 	return nil, nil
 }
 
-func AppRestartHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func AppRestart(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
 	requestedRestart := false
 	for _, ctx := range input.Result.Contexts {
 		if ctx.Name != "requested_restart" {
@@ -244,19 +233,11 @@ func CancelHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) 
 	return nil, ErrIntentNoMatch
 }
 
-func HelpHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	if runtimeState.State.ProjectID == uuid.Nil {
-		runtimeState.OutputSSML.Text(`
-			You can say "list apps" to hear what's available,
-			"help" to hear this help menu,
-			and "quit" to leave.`)
-	} else {
-		runtimeState.OutputSSML.Text(`
-			You can say "repeat" to hear the last thing over again,
-			"stop app" to leave the current app,
-			"restart app" to start from the beginning erasing all of your progress,
-			and "help" to hear this help menu.`)
-	}
+func TalkativeHelp(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
+	runtimeState.OutputSSML.Text(`
+		You can say "list apps" to hear what's available,
+		"help" to hear this help menu,
+		and "quit" to leave.`)
 	for _, ctx := range input.Result.Contexts {
 		if ctx.Name != "previous_output" {
 			continue
@@ -273,6 +254,15 @@ func HelpHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*
 		}
 		return &contextOut, nil
 	}
+	return nil, nil
+}
+
+func AppHelp(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
+	runtimeState.OutputSSML.Text(`
+		You can say "repeat" to hear the last thing over again,
+		"stop app" to leave the current app,
+		"restart app" to start from the beginning erasing all of your progress,
+		and "help" to hear this help menu.`)
 	return nil, nil
 }
 

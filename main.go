@@ -10,6 +10,7 @@ import (
 	"github.com/talkative-ai/core/db"
 	"github.com/talkative-ai/core/redis"
 	"github.com/talkative-ai/core/router"
+	"github.com/talkative-ai/go-alexa/skillserver"
 
 	"github.com/gorilla/mux"
 )
@@ -47,6 +48,13 @@ func main() {
 	router.ApplyRoute(r, routes.PostDemo)
 	router.ApplyRoute(r, routes.PostGoogleAuth)
 	router.ApplyRoute(r, routes.PostGoogleAuthToken)
+
+	skillserver.SetEchoPrefix("/ai/v1/alexa/")
+	skillserver.Init(map[string]interface{}{
+		routes.PostAlexa.Path: skillserver.EchoApplication{
+			Handler: routes.PostAlexaHandler,
+		},
+	}, r)
 
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"https://talkative.ai", "https://harihara.ngrok.io", "http://brahman.ngrok.io", "https://brahman.ngrok.io", "https://workbench.talkative.ai", "http://localhost:3000", "http://localhost:8080", "http://localhost:3001"},
