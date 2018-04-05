@@ -51,7 +51,7 @@ func MatchIntent(key, query string) (*snips.Result, error) {
 	return &result, nil
 }
 
-func InappHandler(rawInput string, message *models.AIRequest) error {
+func InAppHandler(rawInput string, message *models.AIRequest) error {
 	projectID := message.State.ProjectID
 	pubID := message.State.PubID
 

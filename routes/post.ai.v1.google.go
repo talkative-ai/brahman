@@ -78,11 +78,13 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		// TOOD: Handle errors
 
 		requestState.State = models.MutableAIRequestState{
-			Demo:      stateMap["Demo"].(bool),
-			SessionID: uuid.FromStringOrNil(stateMap["SessionID"].(string)),
-			Zone:      uuid.FromStringOrNil(stateMap["Zone"].(string)),
-			PubID:     stateMap["PubID"].(string),
-			ProjectID: uuid.FromStringOrNil(stateMap["ProjectID"].(string)),
+			Demo:             stateMap["Demo"].(bool),
+			SessionID:        uuid.FromStringOrNil(stateMap["SessionID"].(string)),
+			Zone:             uuid.FromStringOrNil(stateMap["Zone"].(string)),
+			PubID:            stateMap["PubID"].(string),
+			ProjectID:        uuid.FromStringOrNil(stateMap["ProjectID"].(string)),
+			PreviousResponse: stateMap["PreviousResponse"].(string),
+			RestartRequested: stateMap["RestartRequested"].(bool),
 		}
 		requestState.State.ZoneActors = map[uuid.UUID][]string{}
 		if stateMap["ZoneActors"] != nil {
@@ -177,9 +179,40 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if parsedInput.Intent.Name == "repeat" {
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"exp":  time.Now().Add(time.Minute * 3).Unix(),
+			"data": requestState.State,
+		})
+		// Sign the token and stringify
+		tokenString, err := token.SignedString([]byte(os.Getenv("JWT_KEY")))
+		if err != nil {
+			log.Println("Error", err)
+			return
+		}
+
+		response := aog.NewResponse(tokenString, "", "", true)
+		response.ResponseMetadata["queryMatchInfo"] = struct {
+			QueryMatched bool   `json:"queryMatched"`
+			Intent       string `json:"intent"`
+		}{
+			true,
+			parsedInput.Intent.Name,
+		}
+		err = json.Unmarshal([]byte(requestState.State.PreviousResponse), &response.ExpectedInputs)
+		if err != nil {
+			log.Println("Error", err)
+			return
+		}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	handledInApp := false
 	if isInApp && !intentHandled {
-		err = intentHandlers.InappHandler(parsedRequest.Inputs[0].RawInputs[0].Query, requestState)
+		err = intentHandlers.InAppHandler(parsedRequest.Inputs[0].RawInputs[0].Query, requestState)
 		if err == nil {
+			handledInApp = true
 			intentHandled = true
 		}
 		if err != nil && err != intentHandlers.ErrIntentNoMatch {
@@ -196,18 +229,26 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// if input.Result.Metadata.IntentName != "app.stop" &&
-	// 	// TODO: Figure out WTF and how to fix this mess
-	// 	(hasAppToken ||
-	// 		((input.Result.Metadata.IntentName == "app.initialize" ||
-	// 			input.Result.Metadata.IntentName == "app.demo" ||
-	// 			input.Result.Metadata.IntentName == "app.restart") &&
-	// 			requestState.State.ProjectID != uuid.Nil)) {
-	// 	contextOut = append(contextOut, *GenerateStateContext(GenerateStateTokenString(&requestState.State)))
-	// }
+	response := aog.NewResponse("", requestState.OutputSSML.String(), requestState.OutputSSML.Raw(), true)
+	response.ResponseMetadata["queryMatchInfo"] = struct {
+		QueryMatched bool   `json:"queryMatched"`
+		Intent       string `json:"intent"`
+	}{
+		true,
+		parsedInput.Intent.Name,
+	}
+
+	if handledInApp {
+		previousResponseBytes, err := json.Marshal(response.ExpectedInputs)
+		if err != nil {
+			log.Println("Error", err)
+			return
+		}
+		requestState.State.PreviousResponse = string(previousResponseBytes)
+	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"exp":  time.Now().Add(time.Minute * 60 * 24 * 30).Unix(),
+		"exp":  time.Now().Add(time.Minute * 3).Unix(),
 		"data": requestState.State,
 	})
 	// Sign the token and stringify
@@ -217,37 +258,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := aog.NewResponse(tokenString, requestState.OutputSSML.String(), requestState.OutputSSML.Raw(), true)
-	response.ResponseMetadata["queryMatchInfo"] = struct {
-		QueryMatched bool   `json:"queryMatched"`
-		Intent       string `json:"intent"`
-	}{
-		true,
-		parsedInput.Intent.Name,
-	}
-
-	// hasPreviousOutput := false
-	// for _, ctx := range contextOut {
-	// 	if ctx.Name != "previous_output" {
-	// 		continue
-	// 	}
-	// 	hasPreviousOutput = true
-	// }
-	// if !hasPreviousOutput {
-	// 	contextOut = append(contextOut,
-	// 		actions.ApiAiContext{
-	// 			Name: "previous_output",
-	// 			Parameters: map[string]string{
-	// 				// TODO: Make sure Shiva filters out special chars that would break this
-	// 				// Namely '<'
-	// 				"DisplayText": requestState.OutputSSML.Raw(),
-	// 				"Speech":      requestState.OutputSSML.String(),
-	// 			},
-	// 			Lifespan: 1,
-	// 		})
-	// }
-
-	// response.ContextOut = &contextOut
+	response.ConversationToken = tokenString
 
 	json.NewEncoder(w).Encode(response)
 }

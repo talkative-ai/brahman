@@ -36,7 +36,7 @@ var IntentResponses = RandomStringCollection{
 	},
 	"introduce": []string{
 		"This is Talkative speaking. I hope you're having a good day.",
-		"Talkative here, very nice to see you.",
+		"Talkative here, very nice to hear from you.",
 		"Hello, you're speaking to Talkative. I hope you're having a great day.",
 	},
 	"instructions": []string{
@@ -69,7 +69,6 @@ var List = map[string]IntentHandler{
 	"app.help":                 AppHelp,
 	"confirm":                  ConfirmHandler,
 	"cancel":                   CancelHandler,
-	"repeat":                   RepeatHandler,
 }
 
 // Welcome IntentHandler provides an introduction to Talkative
@@ -174,17 +173,20 @@ func AppStop(input *snips.Result, runtimeState *models.AIRequest) error {
 	runtimeState.OutputSSML.Text(`
 		Okay, stopping the app now. You're back to the main menu.
 		If you're not sure what to do, say "help"`)
+	runtimeState.State = models.MutableAIRequestState{}
 	return nil
 }
 
 func AppRestart(input *snips.Result, runtimeState *models.AIRequest) error {
-	if !runtimeState.State.RestartRequested {
+	if runtimeState.State.RestartRequested {
+		runtimeState.State.RestartRequested = false
 		runtimeState.OutputSSML.Text(`Okay, restarting now...`)
 		var setup models.RAResetApp
 		setup.Execute(runtimeState)
 		return nil
 	}
-	runtimeState.OutputSSML.Text(`Are you sure you want to restart the app? All of your progress will be lost forever.`)
+	runtimeState.OutputSSML.Text(`All of your progress will be lost forever. If you're sure, say "I'm sure". Otherwise, say "cancel".`)
+	runtimeState.State.RestartRequested = true
 	// TODO: Manage restart requested here
 	return nil
 }
@@ -219,14 +221,9 @@ func TalkativeHelp(input *snips.Result, runtimeState *models.AIRequest) error {
 
 func AppHelp(input *snips.Result, runtimeState *models.AIRequest) error {
 	runtimeState.OutputSSML.Text(`
-		You can say "repeat" to hear the last thing over again,
+		You can say "repeat that" to repeat the last thing from the app,
 		"stop app" to leave the current app,
 		"restart app" to start from the beginning erasing all of your progress,
 		and "help" to hear this help menu.`)
 	return nil
-}
-
-func RepeatHandler(input *snips.Result, runtimeState *models.AIRequest) error {
-	// TODO: Repeat handler
-	return Welcome(input, runtimeState)
 }
