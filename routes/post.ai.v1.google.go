@@ -238,7 +238,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		parsedInput.Intent.Name,
 	}
 
-	if handledInApp {
+	if handledInApp || parsedInput.Intent.Name == "talkative.app.initialize" {
 		previousResponseBytes, err := json.Marshal(response.ExpectedInputs)
 		if err != nil {
 			log.Println("Error", err)
