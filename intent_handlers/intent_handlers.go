@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/talkative-ai/go.uuid"
+	snips "github.com/talkative-ai/snips-nlu-types"
 
-	actions "github.com/talkative-ai/actions-on-google-golang/model"
 	"github.com/talkative-ai/core/common"
 	"github.com/talkative-ai/core/db"
 	"github.com/talkative-ai/core/models"
@@ -54,11 +54,11 @@ var IntentResponses = RandomStringCollection{
 var ErrIntentNoMatch = fmt.Errorf("talkative:no_match")
 
 // IntentHandler is a function signature for handling api.ai requests
-type IntentHandler func(*actions.ApiAiRequest, *models.AIRequest) (contextOut *[]actions.ApiAiContext, err error)
+type IntentHandler func(*snips.Result, *models.AIRequest) error
 
 // List maps ApiAi intents to functions
 var List = map[string]IntentHandler{
-	"Default Welcome Intent":   Welcome,
+	"talkative.welcome":        Welcome,
 	"talkative.info":           TalkativeInfo,
 	"talkative.list":           TalkativeListApps,
 	"talkative.help":           TalkativeHelp,
@@ -73,21 +73,21 @@ var List = map[string]IntentHandler{
 }
 
 // Welcome IntentHandler provides an introduction to Talkative
-func Welcome(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func Welcome(input *snips.Result, message *models.AIRequest) error {
 	message.OutputSSML = message.OutputSSML.
 		Text(common.ChooseString(IntentResponses["introduce"])).
 		Text(common.ChooseString(IntentResponses["instructions"]))
-	return nil, nil
+	return nil
 }
 
 // Info IntentHandler provides additional information on Talkative
-func TalkativeInfo(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func TalkativeInfo(input *snips.Result, message *models.AIRequest) error {
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["talkative info"]))
-	return nil, nil
+	return nil
 }
 
 // ListApps IntentHandler provides additional information on Talkative
-func TalkativeListApps(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func TalkativeListApps(input *snips.Result, message *models.AIRequest) error {
 
 	var items []models.Project
 	_, err := db.DBMap.Select(&items, `
@@ -100,7 +100,7 @@ func TalkativeListApps(input *actions.ApiAiRequest, message *models.AIRequest) (
 		LIMIT 5
 	`)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	message.OutputSSML.Text(`Some available apps to play are: `)
@@ -111,46 +111,30 @@ func TalkativeListApps(input *actions.ApiAiRequest, message *models.AIRequest) (
 		message.OutputSSML.Text(fmt.Sprintf("'%v'", items[i].Title))
 	}
 	message.OutputSSML.Text(`. To play an app, say "Let's play" and then the name of the app.`)
-	return nil, nil
+	return nil
 }
 
 // Unknown IntentHandler handles all unknown intents
-func Unknown(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	contextOut := []actions.ApiAiContext{}
-	for _, ctx := range input.Result.Contexts {
-		if ctx.Name != "previous_output" {
-			continue
-		}
-		contextOut = []actions.ApiAiContext{
-			actions.ApiAiContext{
-				Name: "previous_output",
-				Parameters: map[string]string{
-					"DisplayText": ctx.Parameters["DisplayText"],
-					"Speech":      ctx.Parameters["Speech"],
-				},
-				Lifespan: 1,
-			},
-		}
-	}
+func Unknown(input *snips.Result, message *models.AIRequest) error {
 	message.OutputSSML = message.OutputSSML.Text(common.ChooseString(IntentResponses["unknown"])).
 		Text(" Try saying 'help' if you're unsure what to do.")
-	return &contextOut, nil
+	return nil
 }
 
 // DemoApp enables users to demo their own app before publishing it
-func TalkativeAppDemo(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func TalkativeAppDemo(input *snips.Result, message *models.AIRequest) error {
 	project := models.Project{}
 	err := db.DBMap.SelectOne(&project, `
 		SELECT "ID"
 		FROM workbench_projects
 		WHERE LOWER("Title")=LOWER($1)
-	`, input.Result.Parameters["app"])
+	`, input.SlotsMappedByName()["appName"].RawValue)
 	if err != nil && err == sql.ErrNoRows {
 		message.OutputSSML = message.OutputSSML.Text("Cannot find that app.")
-		return nil, err
+		return nil
 	} else if err != nil {
 		message.OutputSSML = message.OutputSSML.Text("Sorry, there was a problem.")
-		return nil, err
+		return err
 	}
 	projectID := project.ID
 	message.OutputSSML = message.OutputSSML.Text("Okay, found it.")
@@ -160,129 +144,89 @@ func TalkativeAppDemo(input *actions.ApiAiRequest, message *models.AIRequest) (*
 	message.State.Demo = true
 	var setup models.RAResetApp
 	setup.Execute(message)
-	return nil, nil
+	return nil
 }
 
 // InitializeApp IntentHandler will begin a specified app if it exists
-func TalkativeInitialize(input *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	projectID := uuid.FromStringOrNil(redis.Instance.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(input.Result.Parameters["app"])).Val())
+func TalkativeInitialize(input *snips.Result, message *models.AIRequest) error {
+
+	var appName string
+
+	if slot, ok := input.SlotsMappedByName()["appName"]; ok {
+		appName = slot.RawValue
+	}
+
+	projectID := uuid.FromStringOrNil(redis.Instance.HGet(models.KeynavGlobalMetaProjects(), strings.ToUpper(appName)).Val())
 	if projectID == uuid.Nil {
 		message.OutputSSML = message.OutputSSML.Text("Sorry, that one doesn't exist yet! Try saying 'help' if you're unsure what to do next.")
-		return nil, nil
+		return nil
 	}
 	message.State.ProjectID = projectID
 	message.State.PubID = projectID.String()
 	message.State.SessionID = uuid.NewV4()
-	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", input.Result.Parameters["app"]))
+	message.OutputSSML = message.OutputSSML.Text(fmt.Sprintf("Okay, starting %v. Have fun!", appName))
 	var setup models.RAResetApp
 	setup.Execute(message)
-	return nil, nil
+	return nil
 }
 
-func AppStop(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func AppStop(input *snips.Result, runtimeState *models.AIRequest) error {
 	runtimeState.OutputSSML.Text(`
 		Okay, stopping the app now. You're back to the main menu.
 		If you're not sure what to do, say "help"`)
-	return nil, nil
+	return nil
 }
 
-func AppRestart(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	requestedRestart := false
-	for _, ctx := range input.Result.Contexts {
-		if ctx.Name != "requested_restart" {
-			continue
-		}
-		requestedRestart = true
-	}
-	if requestedRestart {
+func AppRestart(input *snips.Result, runtimeState *models.AIRequest) error {
+	if !runtimeState.State.RestartRequested {
 		runtimeState.OutputSSML.Text(`Okay, restarting now...`)
 		var setup models.RAResetApp
 		setup.Execute(runtimeState)
-		return nil, nil
+		return nil
 	}
 	runtimeState.OutputSSML.Text(`Are you sure you want to restart the app? All of your progress will be lost forever.`)
-	contextOut := []actions.ApiAiContext{
-		actions.ApiAiContext{
-			Name:       "requested_restart",
-			Parameters: map[string]string{},
-			Lifespan:   1,
-		},
-	}
-	return &contextOut, nil
+	// TODO: Manage restart requested here
+	return nil
 }
 
-func ConfirmHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	for _, ctx := range input.Result.Contexts {
-		if ctx.Name == "requested_restart" {
-			runtimeState.OutputSSML.Text(`Okay, restarting now...`)
-			var setup models.RAResetApp
-			setup.Execute(runtimeState)
-			return nil, nil
-		}
+func ConfirmHandler(input *snips.Result, runtimeState *models.AIRequest) error {
+	if !runtimeState.State.RestartRequested {
+		return ErrIntentNoMatch
 	}
-	return nil, ErrIntentNoMatch
+
+	runtimeState.OutputSSML.Text(`Okay, restarting now...`)
+	var setup models.RAResetApp
+	setup.Execute(runtimeState)
+	return nil
 }
 
-func CancelHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	for _, ctx := range input.Result.Contexts {
-		if ctx.Name == "requested_restart" {
-			runtimeState.OutputSSML.Text(`Okay, you've cancelled restarting. Try saying 'help' if you're unsure what to do next.`)
-			return nil, nil
-		}
+func CancelHandler(input *snips.Result, runtimeState *models.AIRequest) error {
+	if !runtimeState.State.RestartRequested {
+		return ErrIntentNoMatch
 	}
-	return nil, ErrIntentNoMatch
+
+	runtimeState.OutputSSML.Text(`Okay, you've cancelled restarting. Try saying 'help' if you're unsure what to do next.`)
+	return nil
 }
 
-func TalkativeHelp(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func TalkativeHelp(input *snips.Result, runtimeState *models.AIRequest) error {
 	runtimeState.OutputSSML.Text(`
 		You can say "list apps" to hear what's available,
 		"help" to hear this help menu,
 		and "quit" to leave.`)
-	for _, ctx := range input.Result.Contexts {
-		if ctx.Name != "previous_output" {
-			continue
-		}
-		contextOut := []actions.ApiAiContext{
-			actions.ApiAiContext{
-				Name: "previous_output",
-				Parameters: map[string]string{
-					"DisplayText": ctx.Parameters["DisplayText"],
-					"Speech":      ctx.Parameters["Speech"],
-				},
-				Lifespan: 1,
-			},
-		}
-		return &contextOut, nil
-	}
-	return nil, nil
+	return nil
 }
 
-func AppHelp(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func AppHelp(input *snips.Result, runtimeState *models.AIRequest) error {
 	runtimeState.OutputSSML.Text(`
 		You can say "repeat" to hear the last thing over again,
 		"stop app" to leave the current app,
 		"restart app" to start from the beginning erasing all of your progress,
 		and "help" to hear this help menu.`)
-	return nil, nil
+	return nil
 }
 
-func RepeatHandler(input *actions.ApiAiRequest, runtimeState *models.AIRequest) (*[]actions.ApiAiContext, error) {
-	for _, ctx := range input.Result.Contexts {
-		if ctx.Name != "previous_output" {
-			continue
-		}
-		runtimeState.OutputSSML.Text(ctx.Parameters["Speech"])
-		outputContext := []actions.ApiAiContext{
-			actions.ApiAiContext{
-				Name: "previous_output",
-				Parameters: map[string]string{
-					"DisplayText": ctx.Parameters["DisplayText"],
-					"Speech":      ctx.Parameters["Speech"],
-				},
-				Lifespan: 1,
-			},
-		}
-		return &outputContext, nil
-	}
+func RepeatHandler(input *snips.Result, runtimeState *models.AIRequest) error {
+	// TODO: Repeat handler
 	return Welcome(input, runtimeState)
 }

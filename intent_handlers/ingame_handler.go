@@ -1,17 +1,57 @@
 package intentHandlers
 
 import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
+	"github.com/talkative-ai/snips-nlu-types"
+
 	goredis "github.com/go-redis/redis"
-	actions "github.com/talkative-ai/actions-on-google-golang/model"
 	"github.com/talkative-ai/core/db"
 	"github.com/talkative-ai/core/models"
 	"github.com/talkative-ai/core/redis"
 	uuid "github.com/talkative-ai/go.uuid"
 )
 
-func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]actions.ApiAiContext, error) {
+func MatchIntent(key, query string) (*snips.Result, error) {
+
+	var result snips.Result
+
+	data := url.Values{}
+	data.Set("query", query)
+	// Note the context here is set to App, rather than Talkative
+	// because this isn't a conversation with Talkative,
+	// it's a conversation with the app
+	data.Set("context", key)
+
+	rq, err := http.NewRequest("POST", fmt.Sprintf("http://kalidasa:8080/v1/parse"), strings.NewReader(data.Encode()))
+	if err != nil {
+		fmt.Println("Error in TrainData", err)
+		// TODO: Handle errors
+	}
+	rq.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	rq.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+
+	client := http.Client{}
+	resp, err := client.Do(rq)
+
+	rawResponse, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+		// TODO: Handle errors
+	}
+
+	json.Unmarshal(rawResponse, &result)
+
+	return &result, nil
+}
+
+func InappHandler(rawInput string, message *models.AIRequest) error {
 	projectID := message.State.ProjectID
 	pubID := message.State.PubID
 
@@ -20,7 +60,7 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 	if !message.State.Demo {
 		go func() {
 			var newID uuid.UUID
-			err := db.Instance.QueryRow(`INSERT INTO event_user_action ("UserID", "ProjectID", "RawInput") VALUES ($1, $2, $3) RETURNING "ID"`, uuid.Nil, projectID, q.Result.ResolvedQuery).Scan(&newID)
+			err := db.Instance.QueryRow(`INSERT INTO event_user_action ("UserID", "ProjectID", "RawInput") VALUES ($1, $2, $3) RETURNING "ID"`, uuid.Nil, projectID, rawInput).Scan(&newID)
 			if err != nil {
 				// TODO: Log this error somewhere
 			}
@@ -35,28 +75,31 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 		currentDialogKey := *message.State.CurrentDialog
 		split := strings.Split(currentDialogKey, ":")
 		currentDialogID := split[len(split)-1]
-		for _, actorID := range message.State.ZoneActors[message.State.Zone] {
-			input := models.DialogInput(q.Result.ResolvedQuery)
-			v := redis.Instance.HGet(models.KeynavCompiledDialogNodeWithinActor(pubID, actorID, currentDialogID), input.Prepared())
-			if v.Err() == nil || v.Err() == goredis.Nil {
-				dialogID = v.Val()
-				break
-			} else {
-				return nil, v.Err()
-			}
+		input := models.DialogInput(rawInput)
+		result, err := MatchIntent(models.KeynavCompiledDialogNode(pubID, currentDialogID), input.Prepared())
+		if err != nil {
+			return err
+		}
+		// TODO: Generalize probability threshold
+		if result.Intent.Probability > 0.8 {
+			dialogID = result.Intent.Name
 		}
 	} else {
+
+		fmt.Println("Here 11")
 		// If there is no current dialog, then we scan all "root dialogs"
 		// for the actors within the Zone
 		// This is where conversations begin
 		for _, actorID := range message.State.ZoneActors[message.State.Zone] {
-			input := models.DialogInput(q.Result.ResolvedQuery)
-			v := redis.Instance.HGet(models.KeynavCompiledDialogRootWithinActor(pubID, actorID), input.Prepared())
-			if v.Err() == nil || v.Err() == goredis.Nil {
-				dialogID = v.Val()
+			input := models.DialogInput(rawInput)
+			result, err := MatchIntent(models.KeynavCompiledDialogRootWithinActor(pubID, actorID), input.Prepared())
+			if err != nil {
+				return err
+			}
+			// TODO: Generalize probability threshold
+			if result.Intent.Probability > 0.8 {
+				dialogID = result.Intent.Name
 				break
-			} else {
-				return nil, v.Err()
 			}
 		}
 	}
@@ -64,27 +107,26 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 	// There were no dialogs at all with the given input
 	// So we check to see if there's a "catch-all" unknown dialog handler
 	if dialogID == "" {
+		fmt.Println("Here 12")
 		if message.State.CurrentDialog != nil {
 			currentDialogKey := *message.State.CurrentDialog
 			split := strings.Split(currentDialogKey, ":")
 			currentDialogID := split[len(split)-1]
-			for _, actorID := range message.State.ZoneActors[message.State.Zone] {
-				v := redis.Instance.HGet(models.KeynavCompiledDialogNodeWithinActor(pubID, actorID, currentDialogID), models.DialogSpecialInputUnknown)
-				if v.Err() == nil || v.Err() == goredis.Nil {
-					dialogID = v.Val()
-					break
-				} else {
-					return nil, v.Err()
-				}
+			v := redis.Instance.Get(models.KeynavCompiledDialogNodeUnknown(pubID, currentDialogID))
+			if v.Err() == nil || v.Err() == goredis.Nil {
+				dialogID = v.Val()
+			} else {
+				v.Err()
 			}
 		} else {
+			fmt.Println("Here 13")
 			for _, actorID := range message.State.ZoneActors[message.State.Zone] {
-				v := redis.Instance.HGet(models.KeynavCompiledDialogRootWithinActor(pubID, actorID), models.DialogSpecialInputUnknown)
+				v := redis.Instance.Get(models.KeynavCompiledDialogRootUnknownWithinActor(pubID, actorID))
 				if v.Err() == nil || v.Err() == goredis.Nil {
 					dialogID = v.Val()
 					break
 				} else {
-					return nil, v.Err()
+					v.Err()
 				}
 			}
 		}
@@ -95,12 +137,12 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 	// This probably won't happen in the future but eventually will need to consider.
 	// e.g. attach default unknown response to the zone? actor? etc.
 	if dialogID == "" {
-		return nil, ErrIntentNoMatch
+		return ErrIntentNoMatch
 	}
 
 	dialogBinary, err := redis.Instance.Get(dialogID).Bytes()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	stateComms := make(chan models.AIRequest, 1)
 	defer close(stateComms)
@@ -115,15 +157,15 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 	result := models.LogicLazyEval(stateComms, dialogBinary)
 	for res := range result {
 		if res.Error != nil {
-			return nil, err
+			return err
 		}
 		bundleBinary, err := redis.Instance.Get(res.Value).Bytes()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		err = models.ActionBundleEval(message, bundleBinary)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		stateComms <- *message
 		stateChange = true
@@ -136,5 +178,5 @@ func InappHandler(q *actions.ApiAiRequest, message *models.AIRequest) (*[]action
 		go db.Instance.QueryRow(`INSERT INTO event_state_change ("EventUserActionID", "StateObject") VALUES ($1, $2)`, newID, stateObject)
 	}
 
-	return nil, nil
+	return nil
 }

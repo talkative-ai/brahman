@@ -3,9 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
-	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/talkative-ai/core/models"
@@ -13,8 +11,6 @@ import (
 
 	"github.com/talkative-ai/go.uuid"
 
-	apiai "github.com/talkative-ai/apiai-go"
-	"github.com/talkative-ai/core"
 	"github.com/talkative-ai/core/myerrors"
 	"github.com/talkative-ai/core/prehandle"
 	"github.com/talkative-ai/core/router"
@@ -82,52 +78,50 @@ func postDemoHander(w http.ResponseWriter, r *http.Request) {
 
 		output.SSML = message.OutputSSML.String()
 		output.Text = message.OutputSSML.Raw()
-		token := GenerateStateTokenString(&message.State)
-		output.State = &token
 	} else {
 
-		claims, err := utilities.ParseJTWClaims(*input.State)
-		if err != nil {
-			log.Print("Error:", err)
-			return
-		}
-		stateMap := claims["state"].(map[string]interface{})
+		// claims, err := utilities.ParseJTWClaims(*input.State)
+		// if err != nil {
+		// 	log.Print("Error:", err)
+		// 	return
+		// }
+		// stateMap := claims["state"].(map[string]interface{})
 
-		client, err := apiai.NewClient(
-			&apiai.ClientConfig{
-				Token:      "83e827c573d54af89f994e18ebc1f279",
-				QueryLang:  "en",
-				SpeechLang: "en-US",
-			},
-		)
-		if err != nil {
-			myerrors.ServerError(w, r, err)
-			return
-		}
-		context := GenerateStateContext(*input.State)
-		//Set the query string and your current user identifier.
-		// TODO: Stop using two different libraries here
-		ctx := apiai.Context{}
-		ctx.Name = context.Name
-		ctx.Lifespan = context.Lifespan
-		ctx.Params = map[string]interface{}{}
-		for key, val := range context.Parameters {
-			ctx.Params[key] = val
-		}
-		qr, err := client.Query(apiai.Query{Query: []string{input.Message}, Contexts: []apiai.Context{ctx}, SessionId: stateMap["SessionID"].(string)})
-		if err != nil {
-			myerrors.ServerError(w, r, err)
-			return
-		}
-		output.SSML = qr.Result.Fulfillment.Speech
-		output.Text = qr.Result.Fulfillment.DisplayText
-		for _, ctx := range qr.Result.Contexts {
-			if !strings.HasPrefix(ctx.Name, "talkative_jwt_") {
-				continue
-			}
-			tkn := ctx.Params["token"].(string)
-			output.State = &tkn
-		}
+		// client, err := apiai.NewClient(
+		// 	&apiai.ClientConfig{
+		// 		Token:      "83e827c573d54af89f994e18ebc1f279",
+		// 		QueryLang:  "en",
+		// 		SpeechLang: "en-US",
+		// 	},
+		// )
+		// if err != nil {
+		// 	myerrors.ServerError(w, r, err)
+		// 	return
+		// }
+		// context := GenerateStateContext(*input.State)
+		// //Set the query string and your current user identifier.
+		// // TODO: Stop using two different libraries here
+		// ctx := apiai.Context{}
+		// ctx.Name = context.Name
+		// ctx.Lifespan = context.Lifespan
+		// ctx.Params = map[string]interface{}{}
+		// for key, val := range context.Parameters {
+		// 	ctx.Params[key] = val
+		// }
+		// qr, err := client.Query(apiai.Query{Query: []string{input.Message}, Contexts: []apiai.Context{ctx}, SessionId: stateMap["SessionID"].(string)})
+		// if err != nil {
+		// 	myerrors.ServerError(w, r, err)
+		// 	return
+		// }
+		// output.SSML = qr.Result.Fulfillment.Speech
+		// output.Text = qr.Result.Fulfillment.DisplayText
+		// for _, ctx := range qr.Result.Contexts {
+		// 	if !strings.HasPrefix(ctx.Name, "talkative_jwt_") {
+		// 		continue
+		// 	}
+		// 	tkn := ctx.Params["token"].(string)
+		// 	output.State = &tkn
+		// }
 	}
 
 	json.NewEncoder(w).Encode(output)

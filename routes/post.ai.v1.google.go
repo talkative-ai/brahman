@@ -12,13 +12,15 @@ import (
 	"strings"
 	"time"
 
+	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/talkative-ai/core"
+
+	"github.com/talkative-ai/aog"
 	"github.com/talkative-ai/snips-nlu-types"
 
-	jwt "github.com/dgrijalva/jwt-go"
-	actions "github.com/talkative-ai/actions-on-google-golang/model"
+	"github.com/talkative-ai/brahman/intent_handlers"
 	"github.com/talkative-ai/core/models"
 	"github.com/talkative-ai/core/prehandle"
-	"github.com/talkative-ai/core/redis"
 	"github.com/talkative-ai/core/router"
 	ssml "github.com/talkative-ai/go-ssml"
 	uuid "github.com/talkative-ai/go.uuid"
@@ -53,28 +55,27 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		OutputSSML: ssml.NewBuilder(),
 	}
 
-	input := &actions.AoGRequest{}
-	err := json.NewDecoder(r.Body).Decode(input)
+	parsedRequest := &aog.Request{}
+	err := json.NewDecoder(r.Body).Decode(parsedRequest)
 	if err != nil {
 		log.Print("Error:", err)
 		return
 	}
 
-	conversationKey := models.KeynavContextConversation(input.User.UserID, input.Conversation.ConversationID)
+	parsedInput := snips.Result{}
 
-	hasState := false
-
-	var state string
-	var intent snips.ResultIntent
-
-	if input.Conversation.Type != "NEW" {
-		state = redis.Instance.Get(conversationKey).String()
-		hasState = true
+	stateMap, err := utilities.ParseJTWClaims(parsedRequest.Conversation.ConversationToken)
+	if stateMap["data"] != nil {
+		stateMap = stateMap["data"].(map[string]interface{})
 	}
 
-	if hasState {
-		var stateMap map[string]interface{}
-		json.Unmarshal([]byte(state), stateMap)
+	var isInApp bool
+	if stateMap["ProjectID"] != nil && stateMap["ProjectID"].(string) != uuid.Nil.String() {
+		isInApp = true
+	}
+
+	if isInApp {
+		// TOOD: Handle errors
 
 		requestState.State = models.MutableAIRequestState{
 			Demo:      stateMap["Demo"].(bool),
@@ -108,7 +109,7 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		}
 
 		data := url.Values{}
-		data.Set("query", input.Inputs[0].RawInputs[0].Query)
+		data.Set("query", parsedRequest.Inputs[0].RawInputs[0].Query)
 		// Note the context here is set to App, rather than Talkative
 		// because this isn't a conversation with Talkative,
 		// it's a conversation with the app
@@ -128,77 +129,72 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		rawResponse, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			fmt.Println("Error in TrainData", err)
+			return
 			// TODO: Handle errors
 		}
 
-		json.Unmarshal(rawResponse, &intent)
+		json.Unmarshal(rawResponse, &parsedInput)
 
-	} else {
+	} else if parsedRequest.Conversation.Type != "NEW" {
 		data := url.Values{}
-		data.Set("query", input.Inputs[0].RawInputs[0].Query)
+		data.Set("query", parsedRequest.Inputs[0].RawInputs[0].Query)
 		// Note the context here is set to Talkative, rather than App
 		data.Set("context", models.KeynavStaticIntentsTalkative())
 
 		rq, err := http.NewRequest("POST", fmt.Sprintf("http://kalidasa:8080/v1/parse"), strings.NewReader(data.Encode()))
 		if err != nil {
 			fmt.Println("Error in TrainData", err)
+			return
 			// TODO: Handle errors
 		}
-		r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-		r.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+		rq.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+		rq.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
 
 		client := http.Client{}
 		resp, err := client.Do(rq)
 
 		rawResponse, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return err
+			fmt.Println("Error in TrainData", err)
+			return
+			// TODO: Handle errors
 		}
 
-		json.Unmarshal(rawResponse, &intent)
+		json.Unmarshal(rawResponse, &parsedInput)
+	} else {
+		parsedInput.Intent.Name = "talkative.welcome"
 	}
 
-	// contextOut := []actions.ApiAiContext{}
+	intentHandled := false
+	if handler, ok := intentHandlers.List[parsedInput.Intent.Name]; ok {
+		err = handler(&parsedInput, requestState)
+		if err == nil {
+			intentHandled = true
+		}
+		if err != nil && err != intentHandlers.ErrIntentNoMatch {
+			fmt.Println("Error", err)
+			return
+		}
+	}
 
-	// intentHandled := false
-	// if handler, ok := intentHandlers.List[input.Result.Metadata.IntentName]; ok {
-	// 	var ctx *[]actions.ApiAiContext
-	// 	ctx, err = handler(input, requestState)
-	// 	if err == nil {
-	// 		intentHandled = true
-	// 	}
-	// 	if err != nil && err != intentHandlers.ErrIntentNoMatch {
-	// 		fmt.Println("Error", err)
-	// 		return
-	// 	}
-	// 	if ctx != nil {
-	// 		contextOut = append(contextOut, *ctx...)
-	// 	}
-	// }
+	if isInApp && !intentHandled {
+		err = intentHandlers.InappHandler(parsedRequest.Inputs[0].RawInputs[0].Query, requestState)
+		if err == nil {
+			intentHandled = true
+		}
+		if err != nil && err != intentHandlers.ErrIntentNoMatch {
+			fmt.Println("Error", err)
+			return
+		}
+	}
 
-	// if hasAppToken && !intentHandled {
-	// 	var ctx *[]actions.ApiAiContext
-	// 	ctx, err = intentHandlers.InappHandler(input, requestState)
-	// 	if err == nil {
-	// 		intentHandled = true
-	// 	}
-	// 	if err != nil && err != intentHandlers.ErrIntentNoMatch {
-	// 		fmt.Println("Error", err)
-	// 		return
-	// 	}
-	// 	if ctx != nil {
-	// 		contextOut = append(contextOut, *ctx...)
-	// 	}
-	// }
-
-	// if !intentHandled {
-	// 	fmt.Printf("Unknown: %+v\n%+v\n", input, requestState)
-	// 	_, err = intentHandlers.Unknown(input, requestState)
-	// 	if err != nil {
-	// 		fmt.Println("Error", err)
-	// 		return
-	// 	}
-	// }
+	if !intentHandled {
+		err = intentHandlers.Unknown(&parsedInput, requestState)
+		if err != nil {
+			fmt.Println("Error", err)
+			return
+		}
+	}
 
 	// if input.Result.Metadata.IntentName != "app.stop" &&
 	// 	// TODO: Figure out WTF and how to fix this mess
@@ -210,9 +206,24 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 	// 	contextOut = append(contextOut, *GenerateStateContext(GenerateStateTokenString(&requestState.State)))
 	// }
 
-	response := actions.ServiceResponse{
-		DisplayText: requestState.OutputSSML.Raw(),
-		Speech:      requestState.OutputSSML.String(),
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"exp":  time.Now().Add(time.Minute * 60 * 24 * 30).Unix(),
+		"data": requestState.State,
+	})
+	// Sign the token and stringify
+	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_KEY")))
+	if err != nil {
+		log.Println("Error", err)
+		return
+	}
+
+	response := aog.NewResponse(tokenString, requestState.OutputSSML.String(), requestState.OutputSSML.Raw(), true)
+	response.ResponseMetadata["queryMatchInfo"] = struct {
+		QueryMatched bool   `json:"queryMatched"`
+		Intent       string `json:"intent"`
+	}{
+		true,
+		parsedInput.Intent.Name,
 	}
 
 	// hasPreviousOutput := false
@@ -239,22 +250,4 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 	// response.ContextOut = &contextOut
 
 	json.NewEncoder(w).Encode(response)
-}
-
-func GenerateStateContext(token string) *actions.ApiAiContext {
-	tokenOut := actions.ApiAiContext{Name: fmt.Sprintf("talkative_jwt_%v", time.Now().UnixNano()), Parameters: map[string]string{"token": token}, Lifespan: 1}
-	return &tokenOut
-}
-
-func GenerateStateTokenString(state *models.MutableAIRequestState) string {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"state": state,
-	})
-
-	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_KEY")))
-	if err != nil {
-		log.Fatal("Error", err)
-		return ""
-	}
-	return tokenString
 }
