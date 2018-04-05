@@ -85,8 +85,6 @@ func InappHandler(rawInput string, message *models.AIRequest) error {
 			dialogID = result.Intent.Name
 		}
 	} else {
-
-		fmt.Println("Here 11")
 		// If there is no current dialog, then we scan all "root dialogs"
 		// for the actors within the Zone
 		// This is where conversations begin
@@ -107,7 +105,6 @@ func InappHandler(rawInput string, message *models.AIRequest) error {
 	// There were no dialogs at all with the given input
 	// So we check to see if there's a "catch-all" unknown dialog handler
 	if dialogID == "" {
-		fmt.Println("Here 12")
 		if message.State.CurrentDialog != nil {
 			currentDialogKey := *message.State.CurrentDialog
 			split := strings.Split(currentDialogKey, ":")
@@ -119,7 +116,6 @@ func InappHandler(rawInput string, message *models.AIRequest) error {
 				v.Err()
 			}
 		} else {
-			fmt.Println("Here 13")
 			for _, actorID := range message.State.ZoneActors[message.State.Zone] {
 				v := redis.Instance.Get(models.KeynavCompiledDialogRootUnknownWithinActor(pubID, actorID))
 				if v.Err() == nil || v.Err() == goredis.Nil {
