@@ -67,6 +67,7 @@ var List = map[string]IntentHandler{
 	"app.stop":                 AppStop,
 	"app.restart":              AppRestart,
 	"app.help":                 AppHelp,
+	"AMAZON.HelpIntent":        AppHelp,
 	"confirm":                  ConfirmHandler,
 	"cancel":                   CancelHandler,
 }
