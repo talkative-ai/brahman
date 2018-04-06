@@ -65,7 +65,17 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 	if len(parsedRequest.Inputs) > 0 &&
 		len(parsedRequest.Inputs[0].Arguments) > 0 &&
 		parsedRequest.Inputs[0].Arguments[0].Name == "is_health_check" {
-		fmt.Printf("Health check: %+v\n", parsedRequest)
+		requestState.OutputSSML = requestState.OutputSSML.Text("OK")
+		response := aog.NewResponse("", requestState.OutputSSML.String(), requestState.OutputSSML.Raw(), true)
+		response.ResponseMetadata["queryMatchInfo"] = struct {
+			QueryMatched bool   `json:"queryMatched"`
+			Intent       string `json:"intent"`
+		}{
+			true,
+			"health_check",
+		}
+		json.NewEncoder(w).Encode(response)
+		return
 	}
 
 	parsedInput := snips.Result{}
