@@ -62,6 +62,12 @@ func postGoogleHander(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parsedRequest.Inputs) > 0 &&
+		len(parsedRequest.Inputs[0].Arguments) > 0 &&
+		parsedRequest.Inputs[0].Arguments[0].Name == "is_health_check" {
+		fmt.Printf("Health check: %+v\n", parsedRequest)
+	}
+
 	parsedInput := snips.Result{}
 
 	stateMap, err := utilities.ParseJTWClaims(parsedRequest.Conversation.ConversationToken)
