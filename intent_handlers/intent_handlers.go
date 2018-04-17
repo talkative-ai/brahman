@@ -171,6 +171,9 @@ func TalkativeInitialize(input *snips.Result, message *models.AIRequest) error {
 }
 
 func AppStop(input *snips.Result, runtimeState *models.AIRequest) error {
+	if runtimeState.State.Demo {
+		return ErrIntentNoMatch
+	}
 	runtimeState.OutputSSML.Text(`
 		Okay, stopping the app now. You're back to the main menu.
 		If you're not sure what to do, say "help"`)
@@ -179,6 +182,9 @@ func AppStop(input *snips.Result, runtimeState *models.AIRequest) error {
 }
 
 func AppRestart(input *snips.Result, runtimeState *models.AIRequest) error {
+	if runtimeState.State.Demo {
+		return ErrIntentNoMatch
+	}
 	if runtimeState.State.RestartRequested {
 		runtimeState.State.RestartRequested = false
 		runtimeState.OutputSSML.Text(`Okay, restarting now...`)
@@ -221,6 +227,12 @@ func TalkativeHelp(input *snips.Result, runtimeState *models.AIRequest) error {
 }
 
 func AppHelp(input *snips.Result, runtimeState *models.AIRequest) error {
+	if runtimeState.State.Demo {
+		runtimeState.OutputSSML.Text(`
+			You can say "repeat that" to repeat the last thing from the app,
+			and "help" to hear this help menu.`)
+		return nil
+	}
 	runtimeState.OutputSSML.Text(`
 		You can say "repeat that" to repeat the last thing from the app,
 		"stop app" to leave the current app,
