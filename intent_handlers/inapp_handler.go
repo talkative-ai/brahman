@@ -55,6 +55,8 @@ func InAppHandler(rawInput string, message *models.AIRequest) error {
 	projectID := message.State.ProjectID
 	pubID := message.State.PubID
 
+	fmt.Printf("InApp Message: %+v\n", rawInput, message.State)
+
 	var dialogID string
 	eventIDChan := make(chan uuid.UUID)
 	if !message.State.Demo {
