@@ -31,7 +31,7 @@ var PostDemo = &router.Route{
 	Path:       "/ai/v1/demo/{id:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}",
 	Method:     "POST",
 	Handler:    http.HandlerFunc(postDemoHander),
-	Prehandler: []prehandle.Prehandler{prehandle.SetJSON, prehandle.JWT, prehandle.RequireBody(65535)},
+	Prehandler: []prehandle.Prehandler{prehandle.SetJSON, prehandle.RequireBody(65535)},
 }
 
 type postDemoInput struct {
