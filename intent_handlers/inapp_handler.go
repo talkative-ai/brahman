@@ -55,7 +55,7 @@ func InAppHandler(rawInput string, message *models.AIRequest) error {
 	projectID := message.State.ProjectID
 	pubID := message.State.PubID
 
-	fmt.Printf("InApp Message: %+v\n", rawInput, message.State)
+	fmt.Printf("InApp Message: %+v\nSTATE = %+v\n", rawInput, message.State)
 
 	var dialogID string
 	eventIDChan := make(chan uuid.UUID)
@@ -86,6 +86,7 @@ func InAppHandler(rawInput string, message *models.AIRequest) error {
 		if result.Intent.Probability > 0.8 {
 			dialogID = result.Intent.Name
 		}
+		fmt.Printf("Result in current dialog, %+v\n", result)
 	} else {
 		// If there is no current dialog, then we scan all "root dialogs"
 		// for the actors within the Zone
@@ -93,12 +94,14 @@ func InAppHandler(rawInput string, message *models.AIRequest) error {
 		for _, actorID := range message.State.ZoneActors[message.State.Zone] {
 			input := models.DialogInput(rawInput)
 			result, err := MatchIntent(models.KeynavCompiledDialogRootWithinActor(pubID, actorID), input.Prepared())
+			fmt.Printf("Result in root dialogs attempt: %+v\n", result)
 			if err != nil {
 				return err
 			}
 			// TODO: Generalize probability threshold
 			if result.Intent.Probability > 0.8 {
 				dialogID = result.Intent.Name
+				fmt.Printf("Result in root dialogs, %+v\n", result)
 				break
 			}
 		}
@@ -107,6 +110,7 @@ func InAppHandler(rawInput string, message *models.AIRequest) error {
 	// There were no dialogs at all with the given input
 	// So we check to see if there's a "catch-all" unknown dialog handler
 	if dialogID == "" {
+		fmt.Println("There were no dialogs.")
 		if message.State.CurrentDialog != nil {
 			currentDialogKey := *message.State.CurrentDialog
 			split := strings.Split(currentDialogKey, ":")
